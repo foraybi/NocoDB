@@ -22,6 +22,8 @@ const CONFIG = {
     userProfile: "mlr66su3m4ef4bs",
     consultation: "mlvt0see64vuztv",
     expert: "mb0s0zf680dx712",
+    events: "mzcq4lgx8vxs7oo",
+    attendees: "mdusjzr5zes3rmm", // events_registration_and_attendees_table (junction)
   },
 
   // ---------------------------------------------------------------------------
@@ -111,6 +113,75 @@ const CONFIG = {
       userFieldTitle: "User Profile", // LinkToRecord -> user_profile
       expertFieldTitle: "Expert_ID",  // LinkToRecord -> experts_list
     },
+  },
+
+  // ---------------------------------------------------------------------------
+  // EVENTS (events_table) — for the workshop attendee-import feature.
+  // ---------------------------------------------------------------------------
+  events: {
+    searchFields: ["event_name_en", "event_name_ar"],
+    display: {
+      primary: "event_name_en",
+      secondary: "event_name_ar",
+      tertiary: "event_starting_date",
+    },
+    // "Add event" form (shown when the event is not found).
+    addEventFields: [
+      { key: "event_name_en",       type: "text",   required: true,  labelEn: "Event name (EN)", labelAr: "اسم الفعالية (إنجليزي)" },
+      { key: "event_name_ar",       type: "text",   required: false, labelEn: "Event name (AR)", labelAr: "اسم الفعالية (عربي)" },
+      { key: "event_starting_date", type: "date",   required: false, labelEn: "Start date",      labelAr: "تاريخ البداية" },
+      { key: "event_ending_date",   type: "date",   required: false, labelEn: "End date",        labelAr: "تاريخ النهاية" },
+      { key: "event_venue",         type: "text",   required: false, labelEn: "Venue",           labelAr: "المكان" },
+      { key: "event_presenter_name", type: "text",  required: false, labelEn: "Presenter",       labelAr: "المقدّم" },
+      { key: "event_type",          type: "select", required: false, labelEn: "Type",            labelAr: "النوع",
+        options: [] }, // TODO complete event_type options
+      { key: "event_city",          type: "select", required: false, labelEn: "City",            labelAr: "المدينة",
+        options: [ { value: "Riyadh", labelEn: "Riyadh", labelAr: "الرياض" } ] }, // TODO complete
+      { key: "event_delivery_type", type: "select", required: false, labelEn: "Delivery",        labelAr: "طريقة التقديم",
+        options: [] }, // TODO complete event_delivery_type options
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // ATTENDEE CSV IMPORT
+  // ---------------------------------------------------------------------------
+  attendeeImport: {
+    // Arabic CSV header -> canonical key. Whitespace is trimmed before matching.
+    // Canonical keys prefixed with "__" are not user_profile columns.
+    headerMap: {
+      "الاسم الأول / الاسم الأخير": "en_full_name",
+      "الاسم الأول / الأخير": "en_full_name",
+      "الاسم": "en_full_name",
+      "الهاتف المحمول": "phone_number",
+      "الجوال": "phone_number",
+      "الهوية الوطنية": "national_id",
+      "رقم الهوية": "national_id",
+      "عنوان البريد الإلكتروني": "Email",
+      "البريد الإلكتروني": "Email",
+      "الجنس": "gender",
+      "المدينة": "region_of_residence",
+      "حالة الحضور": "__attendance",
+      // Columns without a confirmed user_profile target are ignored for now:
+      "المستوى التعليمي": "__ignore",
+      "التصنيف": "__ignore",
+      "مستوى اللغة الإنجليزية": "__ignore",
+      "حالة التوظيف": "__ignore",
+    },
+    // user_profile columns we are allowed to write on create (others are dropped).
+    writableUserFields: ["en_full_name", "phone_number", "national_id", "Email", "gender", "region_of_residence"],
+    genderMap: { "ذكر": "Male", "أنثى": "Female", "male": "Male", "female": "Female" },
+    cityMap: { "الرياض": "Riyadh", "جدة": "Jeddah", "الخرج": "Al Kharj" },
+    attendanceTruthy: ["1", "نعم", "true", "yes", "y"],
+
+    // Junction (events_registration_and_attendees_table) field titles.
+    junction: {
+      userLinkTitle: "user_profiles",       // Link -> user_profile
+      eventLinkTitle: "events_tables",      // Link -> events_table
+      userIdField: "user_id",               // Text (set to national_id)
+      attendanceField: "event_attendance_status", // Checkbox
+    },
+    // Link on events_table that points to the junction (for listing existing attendees).
+    eventAttendeesLinkTitle: "events_registration_and_attendees_tables",
   },
 };
 

@@ -1,0 +1,10 @@
+{
+  "name": "monshaat-nocodb-site",
+  "version": "1.0.0",
+  "description": "Bilingual consultation + workshop-attendance site for a NocoDB base.",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "start": "node --env-file=server-reference/.env server-reference/server.js"
+  }
+}

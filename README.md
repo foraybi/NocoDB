@@ -27,9 +27,12 @@ Browser (static SPA)  ──►  Your backend proxy  ──►  NocoDB V2 API
 
 | File | What it is |
 |------|-----------|
-| `index.html`, `styles.css`, `app.js`, `i18n.js` | The static frontend. |
-| `config.js` | **Edit this** — field names, display fields, and link-column IDs. |
+| `index.html`, `styles.css`, `app.js`, `i18n.js` | Consultation booking frontend. |
+| `events.html`, `events.js`, `csv.js` | Workshop attendee CSV-import frontend. |
+| `config.js` | **Edit this** — field names, display fields, link-column titles, CSV header map. |
 | `server-reference/` | A ready-to-run reference backend (Node + Express) that holds the token. Use it or adapt your own. |
+| `test/` | Node unit tests for `csv.js` and the backend `matcher` (run `npm test` or `node --test`). |
+| `docs/superpowers/` | Design spec + implementation plan for the events feature. |
 
 ## Frontend ↔ Backend contract
 
@@ -41,6 +44,19 @@ Implement these on your backend (the reference server already does). All request
 | `POST /api/users` | `{ field: value, ... }` | `{ "record": userRecord }` (must include `Id`) |
 | `GET /api/experts?search={q}` | — | `{ "list": [ expertRecord, ... ] }` |
 | `POST /api/consultations` | `{ "fields": {…}, "userId": <id>, "expertId": <id> }` | `{ "record": consultationRecord }` |
+| `GET /api/events?search={q}` | — | `{ "list": [ eventRecord, ... ] }` |
+| `POST /api/events` | `{ field: value, ... }` | `{ "record": eventRecord }` |
+| `POST /api/attendees/preview` | `{ "eventId": <id>, "rows": [normalizedRow] }` | `{ "totals": {create,link,skipDuplicate,invalid}, "rows": [...] }` (writes nothing) |
+| `POST /api/attendees/commit` | `{ "eventId": <id>, "rows": [normalizedRow] }` | `{ createdUsers, linked, skippedDuplicates, invalid, failed:[] }` |
+
+### Events / attendee import flow
+
+`events.html` is a 4-step wizard: **select or create an event → upload attendee CSV →
+map columns → preview → confirm**. The browser parses the CSV (`csv.js`, offline) and
+sends normalized rows; the backend finds-or-creates each user in `user_profile`
+(matched by **national_id → phone → email**) and links them to the event via the
+`events_registration_and_attendees_table` junction, skipping anyone already registered.
+`npm test` runs the unit tests for parsing/matching.
 
 The backend is responsible for:
 - Adding the `xc-token` header.
