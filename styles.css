@@ -192,6 +192,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5; }
 .grid-table tr.skip td { opacity: .5; background: #fafafa; }
 .grid-table td.auto { color: var(--muted); font-style: italic; }
 .grid-table input[type="date"] { font-size: 12px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; }
+.grid-table select.status-sel { font-size: 12px; padding: 3px 6px; border: 1px solid var(--brand); border-radius: 6px; background: var(--brand-050); color: var(--brand-600); font-weight: 600; }
 
 @media (max-width: 560px) {
   .stepper li span:not(.dot) { display: none; }

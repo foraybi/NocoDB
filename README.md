@@ -29,7 +29,8 @@ Browser (static SPA)  ──►  Your backend proxy  ──►  NocoDB V2 API
 |------|-----------|
 | `index.html`, `styles.css`, `app.js`, `i18n.js` | Consultation booking frontend. |
 | `events.html`, `events.js`, `csv.js` | Workshop attendee CSV-import frontend. |
-| `incubation.html`, `incubation.js` | Incubation applicants CSV-import frontend. |
+| `incubation.html`, `incubation.js`, `incubationBuild.js` | Incubation applicants import frontend (CSV or XLSX). |
+| `vendor/xlsx.full.min.js` | Vendored offline SheetJS parser (for .xlsx/.xls uploads). |
 | `config.js` | **Edit this** — field names, display fields, link-column titles, CSV header map. |
 | `server-reference/` | A ready-to-run reference backend (Node + Express) that holds the token. Use it or adapt your own. |
 | `test/` | Node unit tests for `csv.js` and the backend `matcher` (run `npm test` or `node --test`). |

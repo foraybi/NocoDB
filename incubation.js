@@ -38,25 +38,36 @@
   // Build the normalized rows (three insert payloads) via the shared builder.
   const buildNormalized = (rawRows, today) => window.IncubationBuild.buildRows(rawRows, IMP, today);
 
-  // ---- Step 1: upload --------------------------------------------------------
+  // ---- Step 1: upload (CSV or XLSX) -----------------------------------------
   function initUpload() {
     $("#csvFile").addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
       $("#csvFileName").textContent = file.name;
+      const isExcel = /\.xlsx?$/i.test(file.name);
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          state.csv = CSVKit.parseCSV(reader.result);
-          state.normalized = buildNormalized(state.csv.rows, todayISO());
-          $("#csvParseInfo").textContent = `${t("rowsParsed")} ${state.csv.rows.length}`;
+          const rows = isExcel ? parseXlsx(reader.result) : CSVKit.parseCSV(reader.result).rows;
+          state.csv = { rows };
+          state.normalized = buildNormalized(rows, todayISO());
+          state.normalized.forEach((r) => { r._origStatus = r.status; }); // status editability
+          $("#csvParseInfo").textContent = `${t("rowsParsed")} ${rows.length}`;
         } catch (err) {
           console.error(err); state.csv = null;
           $("#csvParseInfo").innerHTML = `<span class="error-text">${t("csvParseError")}</span>`;
         }
       };
-      reader.readAsText(file, "utf-8"); // UTF-8 for Arabic values
+      if (isExcel) reader.readAsArrayBuffer(file);
+      else reader.readAsText(file, "utf-8"); // UTF-8 for Arabic values
     });
+  }
+
+  // Parse the first sheet of an xlsx/xls into header-keyed row objects (strings).
+  function parseXlsx(arrayBuffer) {
+    const wb = XLSX.read(arrayBuffer, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   }
 
   // ---- Step 2: preview -------------------------------------------------------
@@ -99,31 +110,36 @@
   }
   const truncate = (s, n = 60) => (s.length > n ? s.slice(0, n) + "…" : s);
 
-  // Full "table view": one row per CSV record, columns grouped by target table,
-  // showing exactly what will be inserted where.
+  // Effective status -> what happens. Status may be edited in the preview.
+  const NORM = (s) => String(s == null ? "" : s).trim().toLowerCase();
+  function effect(status) {
+    const s = NORM(status), S = IMP.status;
+    if (s === NORM(S.approved)) return { processed: true, incubate: true };
+    if (s === NORM(S.registered)) return { processed: true, incubate: false };
+    return { processed: false, incubate: false };
+  }
+
+  // Full "table view": columns are  # | status | action | incubation date | <fields...>
   function renderPreviewTable(plans) {
     const F = IMP.fields;
     const userCols = collectCols(plans, (r) => r.user);
     const companyCols = collectCols(plans, (r) => r.company);
-    // company user_id is filled server-side; show it as an auto column
-    if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId);
+    if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId); // server-side (auto)
     const incCols = collectCols(plans, (r) => r.incubation);
-    const incStart = IMP.incubationStartDateField;
 
     const groupHead =
       `<tr class="grp">` +
-      `<th colspan="3" class="grp-meta">—</th>` +
+      `<th colspan="4" class="grp-meta">—</th>` +
       `<th colspan="${userCols.length}" class="grp-user">user_profile</th>` +
       `<th colspan="${companyCols.length}" class="grp-company">company_profile</th>` +
-      `<th colspan="${incCols.length + 1}" class="grp-inc">incubated_startups</th>` +
+      `<th colspan="${incCols.length}" class="grp-inc">incubated_startups</th>` +
       `</tr>`;
     const fieldHead =
       `<tr>` +
-      `<th>#</th><th>${t("colStatus")}</th><th>${t("colAction")}</th>` +
+      `<th>#</th><th>${t("colStatus")}</th><th>${t("colAction")}</th><th>${t("startDateLabel")}</th>` +
       userCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       companyCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       incCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
-      `<th>${escapeHtml(incStart)}</th>` +
       `</tr>`;
 
     const cell = (obj, col, auto) => {
@@ -132,35 +148,68 @@
       return `<td title="${escapeHtml(v)}">${escapeHtml(truncate(v))}</td>`;
     };
 
+    const statusValues = [IMP.status.approved, IMP.status.registered, "rejected"];
+    function statusControl(p) {
+      const n = state.normalized[p.index];
+      // editable only when the ORIGINAL status is "registered"
+      if (NORM(n._origStatus) !== NORM(IMP.status.registered)) {
+        return `<td>${escapeHtml(n.status || "")}</td>`;
+      }
+      const opts = statusValues.map((v) =>
+        `<option value="${escapeHtml(v)}"${NORM(v) === NORM(n.status) ? " selected" : ""}>${escapeHtml(v)}</option>`).join("");
+      return `<td><select class="status-sel" data-row="${p.index}">${opts}</select></td>`;
+    }
+
     const rowsHtml = plans.map((p) => {
       const n = state.normalized[p.index];
-      const processed = p.action === "user-company" || p.action === "user-company-incubation";
-      const willIncubate = p.action === "user-company-incubation";
-      const actionText = willIncubate ? `${p.userAction}/${p.companyAction}+inc`
-        : (p.action === "user-company" ? `${p.userAction}/${p.companyAction}` : p.action);
+      const eff = effect(n.status);
+      const invalid = p.action === "invalid";
+      const actionText = invalid ? "invalid"
+        : (eff.processed
+          ? (eff.incubate ? `${p.userAction}/${p.companyAction}+inc` : `${p.userAction}/${p.companyAction}`)
+          : "skip");
 
-      // start-date input only for approved (incubated) rows
-      let startCell = `<td class="auto">—</td>`;
-      if (willIncubate) {
+      let dateCell = `<td class="auto">—</td>`;
+      if (eff.incubate && !invalid) {
         state.startDates[p.index] = state.startDates[p.index] || todayISO();
-        startCell = `<td><input type="date" data-row="${p.index}" value="${state.startDates[p.index]}" class="inc-date" /></td>`;
+        dateCell = `<td><input type="date" data-row="${p.index}" value="${state.startDates[p.index]}" class="inc-date" /></td>`;
       }
 
-      const uCells = userCols.map((c) => processed ? cell(n.user, c) : `<td></td>`).join("");
-      const cCells = companyCols.map((c) => processed ? cell(n.company, c, c === F.companyUserId) : `<td></td>`).join("");
-      const iCells = incCols.map((c) => willIncubate ? cell(n.incubation, c) : `<td></td>`).join("");
+      const active = eff.processed && !invalid;
+      const uCells = userCols.map((c) => active ? cell(n.user, c) : `<td></td>`).join("");
+      const cCells = companyCols.map((c) => active ? cell(n.company, c, c === F.companyUserId) : `<td></td>`).join("");
+      const iCells = incCols.map((c) => (eff.incubate && !invalid) ? cell(n.incubation, c) : `<td></td>`).join("");
 
-      return `<tr class="${processed ? "" : "skip"}">` +
-        `<td>${p.index + 1}</td><td>${escapeHtml(p.status || "")}</td><td>${escapeHtml(actionText)}</td>` +
-        uCells + cCells + iCells + startCell + `</tr>`;
+      return `<tr class="${active ? "" : "skip"}">` +
+        `<td>${p.index + 1}</td>` + statusControl(p) + `<td>${escapeHtml(actionText)}</td>` + dateCell +
+        uCells + cCells + iCells + `</tr>`;
     }).join("");
 
-    $("#previewArea").innerHTML =
+    const area = $("#previewArea");
+    area.innerHTML =
       `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`;
 
-    $$(".inc-date", $("#previewArea")).forEach((inp) => {
-      inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; });
+    $$(".inc-date", area).forEach((inp) =>
+      inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; }));
+    $$(".status-sel", area).forEach((sel) =>
+      sel.addEventListener("change", () => {
+        state.normalized[Number(sel.dataset.row)].status = sel.value;
+        renderTotals(recomputeTotals());
+        renderPreviewTable(state.plans); // re-render to reflect new action/date/fields
+      }));
+  }
+
+  // Recompute the totals tiles from the (possibly edited) effective statuses.
+  function recomputeTotals() {
+    const totals = { approved: 0, registered: 0, skipped: 0, invalid: 0 };
+    state.plans.forEach((p) => {
+      if (p.action === "invalid") { totals.invalid++; return; }
+      const eff = effect(state.normalized[p.index].status);
+      if (eff.incubate) totals.approved++;
+      else if (eff.processed) totals.registered++;
+      else totals.skipped++;
     });
+    return totals;
   }
 
   async function runCommit() {
