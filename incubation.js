@@ -7,7 +7,7 @@
   const cfg = window.CONFIG;
   const IMP = cfg.incubationImport;
 
-  const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {} };
+  const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {}, issues: [] };
   const todayISO = () => new Date().toISOString().slice(0, 10);
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -52,7 +52,14 @@
           state.csv = { rows };
           state.normalized = buildNormalized(rows, todayISO());
           state.normalized.forEach((r) => { r._origStatus = r.status; }); // status editability
-          $("#csvParseInfo").textContent = `${t("rowsParsed")} ${rows.length}`;
+          // Local validation BEFORE any NocoDB call: auto-corrects safe values,
+          // drops unusable ones, and reports what needs the user's attention.
+          state.issues = ImportValidate.validateRows(state.normalized, IMP.validate);
+          const adjusted = state.issues.filter((i) => i.action === "adjusted").length;
+          const dropped = state.issues.filter((i) => i.action === "dropped").length;
+          $("#csvParseInfo").innerHTML =
+            `${t("rowsParsed")} ${rows.length}` +
+            (state.issues.length ? ` — <strong>${adjusted}</strong> ${t("fieldsAdjusted")}, <strong>${dropped}</strong> ${t("fieldsDropped")}` : "");
         } catch (err) {
           console.error(err); state.csv = null;
           $("#csvParseInfo").innerHTML = `<span class="error-text">${t("csvParseError")}</span>`;
@@ -142,9 +149,20 @@
       incCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       `</tr>`;
 
-    const cell = (obj, col, auto) => {
+    // issue lookup: rowIndex -> payloadKey -> field
+    const issueAt = (rowIdx, key, field) =>
+      state.issues.find((i) => i.row === rowIdx && i.key === key && i.field === field);
+
+    // A flagged field renders as an editable input so the user can adjust it.
+    const cell = (obj, col, auto, rowIdx, key) => {
       if (col === F.companyUserId && auto) return `<td class="auto">(auto)</td>`;
+      const iss = issueAt(rowIdx, key, col);
       const v = obj && obj[col] != null ? String(obj[col]) : "";
+      if (iss) {
+        const tip = `${iss.action}: ${iss.reason}\noriginal: ${iss.raw}`;
+        return `<td class="issue ${iss.action}"><input class="fix-input" data-row="${rowIdx}" data-key="${escapeHtml(key)}" ` +
+          `data-field="${escapeHtml(col)}" value="${escapeHtml(v)}" title="${escapeHtml(tip)}" /></td>`;
+      }
       return `<td title="${escapeHtml(v)}">${escapeHtml(truncate(v))}</td>`;
     };
 
@@ -176,9 +194,9 @@
       }
 
       const active = eff.processed && !invalid;
-      const uCells = userCols.map((c) => active ? cell(n.user, c) : `<td></td>`).join("");
-      const cCells = companyCols.map((c) => active ? cell(n.company, c, c === F.companyUserId) : `<td></td>`).join("");
-      const iCells = incCols.map((c) => (eff.incubate && !invalid) ? cell(n.incubation, c) : `<td></td>`).join("");
+      const uCells = userCols.map((c) => active ? cell(n.user, c, false, p.index, "user") : `<td></td>`).join("");
+      const cCells = companyCols.map((c) => active ? cell(n.company, c, c === F.companyUserId, p.index, "company") : `<td></td>`).join("");
+      const iCells = incCols.map((c) => (eff.incubate && !invalid) ? cell(n.incubation, c, false, p.index, "incubation") : `<td></td>`).join("");
 
       return `<tr class="${active ? "" : "skip"}">` +
         `<td>${p.index + 1}</td>` + statusControl(p) + `<td>${escapeHtml(actionText)}</td>` + dateCell +
@@ -186,17 +204,52 @@
     }).join("");
 
     const area = $("#previewArea");
-    area.innerHTML =
+    area.innerHTML = issuesPanel() +
       `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`;
 
     $$(".inc-date", area).forEach((inp) =>
       inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; }));
+
+    // Editing a flagged field updates the payload and clears/keeps the flag.
+    $$(".fix-input", area).forEach((inp) =>
+      inp.addEventListener("change", () => {
+        const idx = Number(inp.dataset.row), key = inp.dataset.key, field = inp.dataset.field;
+        const v = inp.value.trim();
+        if (v === "") delete state.normalized[idx][key][field];
+        else state.normalized[idx][key][field] = v;
+        // re-validate just this row, replacing its issues
+        state.issues = state.issues.filter((i) => i.row !== idx);
+        state.issues = state.issues.concat(
+          ImportValidate.validateRow(state.normalized[idx], IMP.validate, idx));
+        renderPreviewTable(state.plans);
+      }));
     $$(".status-sel", area).forEach((sel) =>
       sel.addEventListener("change", () => {
         state.normalized[Number(sel.dataset.row)].status = sel.value;
         renderTotals(recomputeTotals());
         renderPreviewTable(state.plans); // re-render to reflect new action/date/fields
       }));
+  }
+
+  // Summary of everything local validation changed/dropped, grouped by field.
+  function issuesPanel() {
+    if (!state.issues.length) {
+      return `<div class="issues-panel ok">${escapeHtml(t("noIssues"))}</div>`;
+    }
+    const byField = {};
+    state.issues.forEach((i) => {
+      const k = `${i.table}.${i.field}|${i.action}|${i.reason || ""}`;
+      (byField[k] = byField[k] || { ...i, count: 0, sample: i.raw }).count++;
+    });
+    const items = Object.values(byField)
+      .sort((a, b) => b.count - a.count)
+      .map((i) =>
+        `<li><span class="badge ${i.action}">${escapeHtml(i.action)}</span> ` +
+        `<code>${escapeHtml(i.table)}.${escapeHtml(i.field)}</code> — ${escapeHtml(i.reason || "")} ` +
+        `<span class="muted">(${i.count}× e.g. "${escapeHtml(truncate(i.sample, 30))}")</span></li>`)
+      .join("");
+    return `<div class="issues-panel"><strong>${escapeHtml(t("needsAdjust"))}</strong>` +
+      `<ul>${items}</ul><div class="muted">${escapeHtml(t("issuesHint"))}</div></div>`;
   }
 
   // Recompute the totals tiles from the (possibly edited) effective statuses.

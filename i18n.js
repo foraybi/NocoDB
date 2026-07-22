@@ -98,6 +98,11 @@ const I18N = {
     repSkipped: "متخطّى",
     repInvalid: "غير صالح",
     repFailed: "فشل",
+    fieldsAdjusted: "حقل تم تصحيحه",
+    fieldsDropped: "حقل تم استبعاده",
+    needsAdjust: "حقول تحتاج إلى مراجعة قبل الإرسال إلى NocoDB:",
+    issuesHint: "الحقول المميّزة قابلة للتعديل مباشرة في الجدول أدناه. القيم المستبعدة لن تُرسل.",
+    noIssues: "لا توجد حقول تحتاج إلى تعديل — جميع القيم مقبولة.",
   },
   en: {
     appTitle: "Book a Consultation",
@@ -197,6 +202,11 @@ const I18N = {
     repSkipped: "Skipped",
     repInvalid: "Invalid",
     repFailed: "Failed",
+    fieldsAdjusted: "field(s) auto-corrected",
+    fieldsDropped: "field(s) dropped",
+    needsAdjust: "Fields needing review before sending to NocoDB:",
+    issuesHint: "Highlighted cells are editable directly in the table below. Dropped values will not be sent.",
+    noIssues: "No fields need adjustment — all values are acceptable.",
   },
 };
 

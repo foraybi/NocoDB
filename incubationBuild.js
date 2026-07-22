@@ -53,8 +53,14 @@
     if (tech) inc[F.incTechUsed] = tech;
     const team = val(C.teamSize); if (team) inc[F.incTeamSize] = team;
 
-    const userPairs = IMP.userMatchKeys.map((k) => [k.col, val(k.csv)]).filter(([, v]) => v !== "");
-    const companyPairs = IMP.companyMatchKeys.map((k) => [k.col, val(k.csv)]).filter(([, v]) => v !== "");
+    // Match pairs: numeric-target columns must be digits only, otherwise NocoDB
+    // rejects the filter (ERR_FILTER_VERIFICATION_FAILED on Number columns).
+    const pair = (k) => {
+      const v = val(k.csv);
+      return [k.col, k.numeric ? CSVKit.digits(v) : v];
+    };
+    const userPairs = IMP.userMatchKeys.map(pair).filter(([, v]) => v !== "");
+    const companyPairs = IMP.companyMatchKeys.map(pair).filter(([, v]) => v !== "");
     const hasIdentity = !!(user.full_name || user.en_full_name || userPairs.length);
 
     return {

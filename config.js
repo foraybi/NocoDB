@@ -203,12 +203,14 @@ const CONFIG = {
       // Deferred (coded/UUID): gender, user_type, nationalities, country, city
     },
     // User match keys, in priority order (first non-empty CSV value that finds a row wins).
+    // `numeric: true` -> value is stripped to digits before filtering (Number columns
+    // reject values like "+966 54 115 5254" with ERR_FILTER_VERIFICATION_FAILED).
     userMatchKeys: [
-      { csv: "national_id_number", col: "national_id" },
-      { csv: "residency_number",   col: "national_id" }, // iqama stored in national_id if no dedicated col
+      { csv: "national_id_number", col: "national_id", numeric: true },
+      { csv: "residency_number",   col: "national_id", numeric: true }, // iqama
       { csv: "passport_number",    col: "passport_id" },
       { csv: "mail",               col: "Email" },
-      { csv: "mobile",             col: "phone_number" },
+      { csv: "mobile",             col: "phone_number", numeric: true },
     ],
 
     // CSV column -> company_profile column (1:1 machine names).
@@ -235,10 +237,32 @@ const CONFIG = {
     },
     // Company match keys, in priority order.
     companyMatchKeys: [
-      { csv: "cr_number",       col: "cr_number" },
+      { csv: "cr_number",       col: "cr_number", numeric: true },
       { csv: "company_name_en", col: "company_name_en" },
       { csv: "company_name_ar", col: "company_name_ar" },
     ],
+
+    // Local validation run BEFORE any NocoDB call. Values are auto-corrected
+    // where safe (numbers stripped to digits, dates normalized) and anything
+    // unusable is dropped and reported so you can fix it in the preview.
+    // type: number | email | date | url
+    validate: {
+      user: {
+        phone_number: "number", national_id: "number",
+        Email: "email", birthdate: "date", registration_date: "date",
+      },
+      company: {
+        cr_number: "number", company_unified_number: "number",
+        number_of_founding_team: "number", number_of_employees: "number",
+        number_of_customers: "number", revenue_till_date_sar: "number",
+        company_email: "email",
+        registration_date: "date", company_registration_date: "date",
+        website: "url", linkedin: "url", x: "url",
+      },
+      incubation: {
+        Email: "email", "Team Size": "number", Add_date: "date",
+      },
+    },
     // Display fields for the preview (company identity).
     companyDisplay: { primary: "company_name_ar", secondary: "company_name_en" },
 
