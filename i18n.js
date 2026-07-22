@@ -103,6 +103,11 @@ const I18N = {
     needsAdjust: "حقول تحتاج إلى مراجعة قبل الإرسال إلى NocoDB:",
     issuesHint: "الحقول المميّزة قابلة للتعديل مباشرة في الجدول أدناه. القيم المستبعدة لن تُرسل.",
     noIssues: "لا توجد حقول تحتاج إلى تعديل — جميع القيم مقبولة.",
+    pagerPrev: "السابق",
+    pagerNext: "التالي",
+    showing: "عرض",
+    of: "من",
+    page: "صفحة",
   },
   en: {
     appTitle: "Book a Consultation",
@@ -207,6 +212,11 @@ const I18N = {
     needsAdjust: "Fields needing review before sending to NocoDB:",
     issuesHint: "Highlighted cells are editable directly in the table below. Dropped values will not be sent.",
     noIssues: "No fields need adjustment — all values are acceptable.",
+    pagerPrev: "Prev",
+    pagerNext: "Next",
+    showing: "Showing",
+    of: "of",
+    page: "Page",
   },
 };
 

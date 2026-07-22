@@ -7,7 +7,8 @@
   const cfg = window.CONFIG;
   const IMP = cfg.incubationImport;
 
-  const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {}, issues: [] };
+  const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {}, issues: [], page: 0 };
+  const PAGE_SIZE = 10;
   const todayISO = () => new Date().toISOString().slice(0, 10);
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -50,6 +51,7 @@
         try {
           const rows = isExcel ? parseXlsx(reader.result) : CSVKit.parseCSV(reader.result).rows;
           state.csv = { rows };
+          state.page = 0; // new file -> back to the first page
           state.normalized = buildNormalized(rows, todayISO());
           state.normalized.forEach((r) => { r._origStatus = r.status; }); // status editability
           // Local validation BEFORE any NocoDB call: auto-corrects safe values,
@@ -127,12 +129,20 @@
   }
 
   // Full "table view": columns are  # | status | action | incubation date | <fields...>
+  // Rows are paginated (PAGE_SIZE per page); columns are derived from ALL rows
+  // so the layout stays stable as you page through.
   function renderPreviewTable(plans) {
     const F = IMP.fields;
     const userCols = collectCols(plans, (r) => r.user);
     const companyCols = collectCols(plans, (r) => r.company);
     if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId); // server-side (auto)
     const incCols = collectCols(plans, (r) => r.incubation);
+
+    const pageCount = Math.max(1, Math.ceil(plans.length / PAGE_SIZE));
+    if (state.page > pageCount - 1) state.page = pageCount - 1;
+    if (state.page < 0) state.page = 0;
+    const start = state.page * PAGE_SIZE;
+    const pagePlans = plans.slice(start, start + PAGE_SIZE);
 
     const groupHead =
       `<tr class="grp">` +
@@ -178,7 +188,7 @@
       return `<td><select class="status-sel" data-row="${p.index}">${opts}</select></td>`;
     }
 
-    const rowsHtml = plans.map((p) => {
+    const rowsHtml = pagePlans.map((p) => {
       const n = state.normalized[p.index];
       const eff = effect(n.status);
       const invalid = p.action === "invalid";
@@ -204,8 +214,20 @@
     }).join("");
 
     const area = $("#previewArea");
-    area.innerHTML = issuesPanel() +
-      `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`;
+    const pager = renderPager(plans.length, pageCount, start, pagePlans.length);
+    area.innerHTML = issuesPanel() + pager +
+      `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>` +
+      pager;
+
+    $$(".pg-btn", area).forEach((b) =>
+      b.addEventListener("click", () => {
+        const to = b.dataset.go;
+        if (to === "prev") state.page--;
+        else if (to === "next") state.page++;
+        else state.page = Number(to);
+        renderPreviewTable(state.plans);
+        area.scrollIntoView({ block: "nearest" });
+      }));
 
     $$(".inc-date", area).forEach((inp) =>
       inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; }));
@@ -229,6 +251,28 @@
         renderTotals(recomputeTotals());
         renderPreviewTable(state.plans); // re-render to reflect new action/date/fields
       }));
+  }
+
+  // Pager: ‹ prev | 1 2 3 … | next ›  + "showing a–b of N"
+  function renderPager(total, pageCount, start, shown) {
+    if (total === 0) return "";
+    const cur = state.page;
+    // window of page numbers around the current page
+    const nums = [];
+    const from = Math.max(0, Math.min(cur - 2, pageCount - 5));
+    const to = Math.min(pageCount, Math.max(5, cur + 3));
+    for (let i = from; i < to; i++) nums.push(i);
+
+    const btn = (go, label, disabled, active) =>
+      `<button class="pg-btn${active ? " active" : ""}" data-go="${go}"${disabled ? " disabled" : ""}>${label}</button>`;
+
+    return `<div class="pager">` +
+      btn("prev", "‹ " + escapeHtml(t("pagerPrev")), cur === 0) +
+      nums.map((i) => btn(String(i), String(i + 1), false, i === cur)).join("") +
+      btn("next", escapeHtml(t("pagerNext")) + " ›", cur >= pageCount - 1) +
+      `<span class="muted pg-info">${escapeHtml(t("showing"))} ${start + 1}–${start + shown} ` +
+      `${escapeHtml(t("of"))} ${total} · ${escapeHtml(t("page"))} ${cur + 1}/${pageCount}</span>` +
+      `</div>`;
   }
 
   // Summary of everything local validation changed/dropped, grouped by field.

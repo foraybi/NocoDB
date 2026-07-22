@@ -194,6 +194,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5; }
 .grid-table input[type="date"] { font-size: 12px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; }
 .grid-table select.status-sel { font-size: 12px; padding: 3px 6px; border: 1px solid var(--brand); border-radius: 6px; background: var(--brand-050); color: var(--brand-600); font-weight: 600; }
 
+/* Pagination */
+.pager { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.pager .pg-btn {
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+  border-radius: 8px; padding: 5px 11px; font-size: 13px; cursor: pointer; min-width: 34px;
+}
+.pager .pg-btn:hover:not(:disabled) { background: var(--brand-050); border-color: var(--brand); color: var(--brand); }
+.pager .pg-btn.active { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+.pager .pg-btn:disabled { opacity: .45; cursor: not-allowed; }
+.pager .pg-info { margin-inline-start: auto; font-size: 12.5px; }
+
 /* Validation: flagged cells + issues panel */
 .grid-table td.issue { padding: 2px 4px; }
 .grid-table td.issue.adjusted { background: #fffaeb; }
