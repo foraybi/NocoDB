@@ -71,7 +71,10 @@ const LINK_USER_FIELD_TITLE = "User Profile";  // consultation -> user_profile
 const LINK_EXPERT_FIELD_TITLE = "Expert_ID";   // consultation -> experts_list
 
 // ---- NocoDB helper ---------------------------------------------------------
-async function noco(pathname, { method = "GET", query, body } = {}) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retries on 429 (rate limit) with backoff, honoring Retry-After when present.
+async function noco(pathname, { method = "GET", query, body } = {}, _attempt = 0) {
   const url = new URL(NOCODB_BASE + pathname);
   if (query) Object.entries(query).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   const res = await fetch(url, {
@@ -79,6 +82,14 @@ async function noco(pathname, { method = "GET", query, body } = {}) {
     headers: { "xc-token": NOCODB_TOKEN, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  if (res.status === 429 && _attempt < 6) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(500 * 2 ** _attempt, 8000);
+    await sleep(waitMs);
+    return noco(pathname, { method, query, body }, _attempt + 1);
+  }
+
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
@@ -334,15 +345,15 @@ app.post("/api/attendees/commit", async (req, res, next) => {
 // INCUBATION APPLICANTS CSV IMPORT
 // ============================================================================
 
-// Find a record by trying ordered [column, value] match pairs (first hit wins).
+// Find a record matching ANY of the [column, value] pairs, in ONE OR query
+// (keeps request count low so we don't hit NocoDB's rate limit).
 async function findByPairs(tableId, pairs) {
-  for (const [col, val] of pairs || []) {
-    if (val == null || String(val).trim() === "") continue;
-    const esc = String(val).replace(/[()]/g, "");
-    const data = await noco(`/api/v2/tables/${tableId}/records`, { query: { where: `(${col},eq,${esc})`, limit: 1 } });
-    if (data.list && data.list.length) return data.list[0];
-  }
-  return null;
+  const clauses = (pairs || [])
+    .filter(([, v]) => v != null && String(v).trim() !== "")
+    .map(([col, v]) => `(${col},eq,${String(v).replace(/[()]/g, "")})`);
+  if (!clauses.length) return null;
+  const data = await noco(`/api/v2/tables/${tableId}/records`, { query: { where: clauses.join("~or"), limit: 1 } });
+  return (data.list && data.list[0]) || null;
 }
 
 async function createRecord(tableId, fields) {
