@@ -19,7 +19,9 @@ const { planRow, summarize } = require("./lib/matcher");
 const incubation = require("./lib/incubationMatcher");
 
 const app = express();
-app.use(express.json());
+// Imports post the whole file as JSON (long Arabic briefs), so the default
+// 100kb body limit is far too small — allow large import payloads.
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "50mb" }));
 
 // ---- Environment -----------------------------------------------------------
 const {
