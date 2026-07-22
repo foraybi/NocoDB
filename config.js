@@ -242,6 +242,69 @@ const CONFIG = {
     // Display fields for the preview (company identity).
     companyDisplay: { primary: "company_name_ar", secondary: "company_name_en" },
 
+    // --- Derived / computed field names (edit if a NocoDB column title differs) ---
+    fields: {
+      // user_profile
+      userRegistrationDate: "registration_date",
+      userGender: "gender",
+      userIdType: "id_type",
+      userType: "user_type",
+      userProgram: "Program",
+      userPhone: "phone_number", // digits-only (Number column)
+      // company_profile
+      companyUserId: "user_id",               // set to the created user's NocoDB Id (server-side)
+      companyUnifiedNumber: "company_unified_number", // from cr_number
+      companyEmail: "company_email",           // from CSV mail
+      companyRegistrationDate: "company_registration_date", // upload date
+      companyBusinessIndustry: "business_industry", // from company_industry
+      companyTechnologyUsed: "technology_used",     // from technologies_table
+      // incubated_startups
+      incCompanyName: "Company name",
+      incDescription: "Description",
+      incEmail: "Email",
+      incPhone: "Phone",
+      incName: "Name",
+      incAddDate: "Add_date",
+      incSector: "Sector",
+      incTechUsed: "Tech Used",
+      incTeamSize: "Team Size",
+    },
+    // CSV source columns used for derived values.
+    csv: {
+      gender: "gender",
+      userType: "user_type",
+      nationalId: "national_id_number",
+      residency: "residency_number",
+      passport: "passport_number",
+      companyIndustry: "company_industry",
+      technologies: "technologies_table",
+      companyNameAr: "company_name_ar",
+      companyNameEn: "company_name_en",
+      briefAr: "business_brief_ar",
+      briefEn: "business_brief_en",
+      teamSize: "number_of_founding_team",
+      mail: "mail",
+      mobile: "mobile",
+      name: "name",
+      nameEn: "name_en",
+      crNumber: "cr_number",
+    },
+    programValue: "الاحتضان",
+    genderMap: { "1": "Male", "2": "Female" },
+    // id_type tag by which id number is present (national -> residency -> passport).
+    idTypeValues: { national: "saudi national id", residency: "saudi iqama", passport: "no saudi id or iqama" },
+    // CSV user_type (Arabic) -> user_profile user_type tag (from the NocoDB options).
+    userTypeMap: {
+      "رائد أعمال": "entrepreneur",
+      "طالب": "student",
+      "موظف": "employee",
+      "صاحب منشأة": "business owner",
+      "مرشد": "mentor",
+      "موجّه": "mentor",
+      "موجه": "mentor",
+      "مستثمر": "investor",
+    },
+
     statusColumn: "registration_status",
     status: {
       approved: "approved",     // user + company + link + incubation (start date)

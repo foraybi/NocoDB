@@ -8,6 +8,7 @@
   const IMP = cfg.incubationImport;
 
   const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {} };
+  const todayISO = () => new Date().toISOString().slice(0, 10);
 
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -34,33 +35,8 @@
     return r.json();
   }
 
-  // Build the normalized rows the backend expects.
-  function buildNormalized(rawRows) {
-    return rawRows.map((row) => {
-      const user = CSVKit.mapFields(row, IMP.userFieldMap);
-      const company = CSVKit.mapFields(row, IMP.companyFieldMap);
-      const status = CSVKit.clean(row[IMP.statusColumn]);
-
-      const userPairs = IMP.userMatchKeys
-        .map((k) => [k.col, CSVKit.clean(row[k.csv])])
-        .filter(([, v]) => v !== "");
-      const companyPairs = IMP.companyMatchKeys
-        .map((k) => [k.col, CSVKit.clean(row[k.csv])])
-        .filter(([, v]) => v !== "");
-
-      const hasIdentity = !!(user.full_name || user.en_full_name || userPairs.length);
-      const companyName = company[IMP.companyDisplay.primary] || company[IMP.companyDisplay.secondary] || "";
-      const userName = user.full_name || user.en_full_name || "";
-
-      return {
-        status,
-        user, company,
-        match: { user: userPairs, company: companyPairs },
-        __hasIdentity: hasIdentity,
-        _display: { user: userName, company: companyName },
-      };
-    });
-  }
+  // Build the normalized rows (three insert payloads) via the shared builder.
+  const buildNormalized = (rawRows, today) => window.IncubationBuild.buildRows(rawRows, IMP, today);
 
   // ---- Step 1: upload --------------------------------------------------------
   function initUpload() {
@@ -72,7 +48,7 @@
       reader.onload = () => {
         try {
           state.csv = CSVKit.parseCSV(reader.result);
-          state.normalized = buildNormalized(state.csv.rows);
+          state.normalized = buildNormalized(state.csv.rows, todayISO());
           $("#csvParseInfo").textContent = `${t("rowsParsed")} ${state.csv.rows.length}`;
         } catch (err) {
           console.error(err); state.csv = null;
@@ -84,25 +60,24 @@
   }
 
   // ---- Step 2: preview -------------------------------------------------------
-  const todayISO = () => new Date().toISOString().slice(0, 10);
-
   async function runPreview() {
     $("#previewTotals").innerHTML = `<div class="muted">${t("previewing")}</div>`;
-    $("#previewTableBody").innerHTML = "";
+    $("#previewArea").innerHTML = "";
     hide($("#importReport"));
     try {
-      const data = await apiPost("/api/incubation/preview", { rows: stripDisplay(state.normalized) });
+      const data = await apiPost("/api/incubation/preview", { rows: payloadRows(state.normalized) });
       state.plans = data.rows;
       renderTotals(data.totals);
-      renderTable(data.rows);
+      renderPreviewTable(data.rows);
     } catch (err) {
       console.error(err);
       $("#previewTotals").innerHTML = `<div class="error-text">${t("genericError")}</div>`;
     }
   }
 
-  function stripDisplay(rows) {
-    return rows.map((r) => ({ status: r.status, user: r.user, company: r.company, match: r.match, __hasIdentity: r.__hasIdentity }));
+  // rows sent to the backend (drop nothing extra; incubation + match travel with them).
+  function payloadRows(rows) {
+    return rows.map((r) => ({ status: r.status, user: r.user, company: r.company, incubation: r.incubation, match: r.match, __hasIdentity: r.__hasIdentity }));
   }
 
   function tile(label, value, kind) {
@@ -116,37 +91,74 @@
       tile(t("tInvalid"), x.invalid, "bad");
   }
 
-  function renderTable(rows) {
-    const body = $("#previewTableBody");
-    body.innerHTML = "";
-    rows.forEach((p) => {
-      const disp = state.normalized[p.index]._display;
-      const tr = document.createElement("tr");
-      const actionText = p.action === "user-company-incubation"
-        ? `${p.userAction || ""} / ${p.companyAction || ""} + ${t("repIncubated")}`
-        : (p.action === "user-company"
-          ? `${p.userAction || ""} / ${p.companyAction || ""}`
-          : escapeHtml(p.action));
+  // Column groups: which fields go to which table (union of keys across rows).
+  function collectCols(rows, pick) {
+    const set = new Set();
+    rows.forEach((p) => Object.keys(pick(state.normalized[p.index]) || {}).forEach((k) => set.add(k)));
+    return Array.from(set);
+  }
+  const truncate = (s, n = 60) => (s.length > n ? s.slice(0, n) + "…" : s);
 
-      let dateCell = "";
-      if (p.incubation) {
+  // Full "table view": one row per CSV record, columns grouped by target table,
+  // showing exactly what will be inserted where.
+  function renderPreviewTable(plans) {
+    const F = IMP.fields;
+    const userCols = collectCols(plans, (r) => r.user);
+    const companyCols = collectCols(plans, (r) => r.company);
+    // company user_id is filled server-side; show it as an auto column
+    if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId);
+    const incCols = collectCols(plans, (r) => r.incubation);
+    const incStart = IMP.incubationStartDateField;
+
+    const groupHead =
+      `<tr class="grp">` +
+      `<th colspan="3" class="grp-meta">—</th>` +
+      `<th colspan="${userCols.length}" class="grp-user">user_profile</th>` +
+      `<th colspan="${companyCols.length}" class="grp-company">company_profile</th>` +
+      `<th colspan="${incCols.length + 1}" class="grp-inc">incubated_startups</th>` +
+      `</tr>`;
+    const fieldHead =
+      `<tr>` +
+      `<th>#</th><th>${t("colStatus")}</th><th>${t("colAction")}</th>` +
+      userCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
+      companyCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
+      incCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
+      `<th>${escapeHtml(incStart)}</th>` +
+      `</tr>`;
+
+    const cell = (obj, col, auto) => {
+      if (col === F.companyUserId && auto) return `<td class="auto">(auto)</td>`;
+      const v = obj && obj[col] != null ? String(obj[col]) : "";
+      return `<td title="${escapeHtml(v)}">${escapeHtml(truncate(v))}</td>`;
+    };
+
+    const rowsHtml = plans.map((p) => {
+      const n = state.normalized[p.index];
+      const processed = p.action === "user-company" || p.action === "user-company-incubation";
+      const willIncubate = p.action === "user-company-incubation";
+      const actionText = willIncubate ? `${p.userAction}/${p.companyAction}+inc`
+        : (p.action === "user-company" ? `${p.userAction}/${p.companyAction}` : p.action);
+
+      // start-date input only for approved (incubated) rows
+      let startCell = `<td class="auto">—</td>`;
+      if (willIncubate) {
         state.startDates[p.index] = state.startDates[p.index] || todayISO();
-        dateCell = `<input type="date" data-row="${p.index}" value="${state.startDates[p.index]}" class="inc-date" />`;
-      } else {
-        dateCell = `<span class="muted">—</span>`;
+        startCell = `<td><input type="date" data-row="${p.index}" value="${state.startDates[p.index]}" class="inc-date" /></td>`;
       }
 
-      tr.innerHTML =
-        `<td>${p.index + 1}</td>` +
-        `<td>${escapeHtml(p.status || "")}</td>` +
-        `<td>${escapeHtml(disp.user)}</td>` +
-        `<td>${escapeHtml(disp.company)}</td>` +
-        `<td>${actionText}</td>` +
-        `<td>${dateCell}</td>`;
-      if (p.action === "skip-rejected" || p.action === "invalid") tr.style.opacity = "0.55";
-      body.appendChild(tr);
-    });
-    $$(".inc-date", body).forEach((inp) => {
+      const uCells = userCols.map((c) => processed ? cell(n.user, c) : `<td></td>`).join("");
+      const cCells = companyCols.map((c) => processed ? cell(n.company, c, c === F.companyUserId) : `<td></td>`).join("");
+      const iCells = incCols.map((c) => willIncubate ? cell(n.incubation, c) : `<td></td>`).join("");
+
+      return `<tr class="${processed ? "" : "skip"}">` +
+        `<td>${p.index + 1}</td><td>${escapeHtml(p.status || "")}</td><td>${escapeHtml(actionText)}</td>` +
+        uCells + cCells + iCells + startCell + `</tr>`;
+    }).join("");
+
+    $("#previewArea").innerHTML =
+      `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`;
+
+    $$(".inc-date", $("#previewArea")).forEach((inp) => {
       inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; });
     });
   }
@@ -155,7 +167,7 @@
     $("#confirmBtn").disabled = true;
     toast(t("importing"));
     try {
-      const rows = stripDisplay(state.normalized).map((r, i) => {
+      const rows = payloadRows(state.normalized).map((r, i) => {
         if (state.startDates[i]) r.startDate = state.startDates[i];
         return r;
       });

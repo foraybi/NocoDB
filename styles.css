@@ -177,6 +177,22 @@ body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5; }
 
 @media (max-width: 560px) { .totals-grid { grid-template-columns: repeat(2, 1fr); } }
 
+/* Grouped preview grid (incubation import) */
+.grid-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.grid-table th, .grid-table td {
+  border: 1px solid var(--line); padding: 5px 8px; text-align: start; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.grid-table thead th { position: sticky; top: 0; background: #fff; }
+.grid-table tr.grp th { text-align: center; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.grid-table .grp-user { background: #eef2ff; color: var(--brand); }
+.grid-table .grp-company { background: #ecfdf5; color: var(--success); }
+.grid-table .grp-inc { background: #fef3f2; color: #b54708; }
+.grid-table .grp-meta { background: #f2f4f7; color: var(--muted); }
+.grid-table tr.skip td { opacity: .5; background: #fafafa; }
+.grid-table td.auto { color: var(--muted); font-style: italic; }
+.grid-table input[type="date"] { font-size: 12px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; }
+
 @media (max-width: 560px) {
   .stepper li span:not(.dot) { display: none; }
   .wizard-nav .btn { min-width: 0; flex: 1; }

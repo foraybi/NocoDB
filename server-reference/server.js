@@ -47,6 +47,7 @@ const T = {
 // Incubation import settings (keep in sync with ../config.js incubationImport).
 const INC_STATUS = { approved: "approved", registered: "registered" };
 const INCUBATION_START_DATE_FIELD = "incubation_start_date";
+const COMPANY_USER_ID_FIELD = "user_id"; // company_profile column set to the created user's Id
 // Title hints only needed if a table has >1 link to the same target table.
 const INC_HINTS = { companyToUser: "", incubationToCompany: "", incubationToUser: "", companyToIncubation: "" };
 
@@ -429,9 +430,14 @@ app.post("/api/incubation/commit", async (req, res, next) => {
         let user = await findByPairs(T.userProfile, (row.match && row.match.user) || []);
         if (!user) { user = await createRecord(T.userProfile, row.user || {}); result.createdUsers++; }
 
-        // find-or-create company
+        // find-or-create company (inject the user's Id on create; reuse never overwrites)
         let company = await findByPairs(T.companyProfile, (row.match && row.match.company) || []);
-        if (!company) { company = await createRecord(T.companyProfile, row.company || {}); result.createdCompanies++; }
+        if (!company) {
+          const companyFields = Object.assign({}, row.company || {});
+          companyFields[COMPANY_USER_ID_FIELD] = recId(user);
+          company = await createRecord(T.companyProfile, companyFields);
+          result.createdCompanies++;
+        }
 
         // link company <-> user
         const cuCol = await linkColumnToTable(T.companyProfile, T.userProfile, INC_HINTS.companyToUser);
@@ -440,7 +446,7 @@ app.post("/api/incubation/commit", async (req, res, next) => {
 
         // incubation (approved only), idempotent per company
         if (base.incubation && !(await companyAlreadyIncubated(recId(company)))) {
-          const fields = {};
+          const fields = Object.assign({}, row.incubation || {});
           if (row.startDate) fields[INCUBATION_START_DATE_FIELD] = row.startDate;
           const inc = await createRecord(T.incubation, fields);
           const icCol = await linkColumnToTable(T.incubation, T.companyProfile, INC_HINTS.incubationToCompany);

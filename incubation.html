@@ -42,21 +42,7 @@
     <section class="step-panel hidden" data-panel="2">
       <h2 data-i18n="previewIncubationTitle">معاينة قبل الاستيراد</h2>
       <div id="previewTotals" class="totals-grid"></div>
-      <div class="table-scroll" style="margin-top:14px">
-        <table class="map-table" id="previewTable">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th data-i18n="colStatus">الحالة</th>
-              <th data-i18n="colUser">المستفيد</th>
-              <th data-i18n="colCompany">الشركة</th>
-              <th data-i18n="colAction">الإجراء</th>
-              <th data-i18n="startDateLabel">تاريخ بداية الاحتضان</th>
-            </tr>
-          </thead>
-          <tbody id="previewTableBody"></tbody>
-        </table>
-      </div>
+      <div id="previewArea" style="margin-top:14px"></div>
       <div id="importReport" class="review hidden" style="margin-top:14px"></div>
     </section>
 
@@ -72,6 +58,7 @@
   <script src="config.js"></script>
   <script src="i18n.js"></script>
   <script src="csv.js"></script>
+  <script src="incubationBuild.js"></script>
   <script src="incubation.js"></script>
 </body>
 </html>
