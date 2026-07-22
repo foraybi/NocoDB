@@ -76,19 +76,41 @@ const LINK_EXPERT_FIELD_TITLE = "Expert_ID";   // consultation -> experts_list
 // ---- NocoDB helper ---------------------------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Proactive pacing: serialize NocoDB calls with a minimum gap so we stay under
+// the server's rate limit instead of only reacting to 429s. The gap widens
+// automatically whenever a 429 is seen, and slowly relaxes again.
+let _minGapMs = Number(process.env.NOCODB_MIN_INTERVAL_MS || 220); // ~4.5 req/s
+const _MAX_GAP_MS = 3000;
+let _lastReqAt = 0;
+let _gateChain = Promise.resolve();
+function gate() {
+  const p = _gateChain.then(async () => {
+    const wait = Math.max(0, _lastReqAt + _minGapMs - Date.now());
+    if (wait) await sleep(wait);
+    _lastReqAt = Date.now();
+  });
+  _gateChain = p.catch(() => {});
+  return p;
+}
+
 // Retries on 429 (rate limit) with backoff, honoring Retry-After when present.
 async function noco(pathname, { method = "GET", query, body } = {}, _attempt = 0) {
   const url = new URL(NOCODB_BASE + pathname);
   if (query) Object.entries(query).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
+
+  await gate();
   const res = await fetch(url, {
     method,
     headers: { "xc-token": NOCODB_TOKEN, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 429 && _attempt < 6) {
+  if (res.status === 429 && _attempt < 8) {
+    // widen the global gap so the rest of the import paces itself
+    _minGapMs = Math.min(Math.ceil(_minGapMs * 1.6) + 50, _MAX_GAP_MS);
     const retryAfter = Number(res.headers.get("retry-after"));
-    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(500 * 2 ** _attempt, 8000);
+    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(1000 * 2 ** _attempt, 30000);
+    console.warn(`429 from NocoDB — backing off ${waitMs}ms (gap now ${_minGapMs}ms)`);
     await sleep(waitMs);
     return noco(pathname, { method, query, body }, _attempt + 1);
   }
@@ -359,6 +381,20 @@ async function findByPairs(tableId, pairs) {
   return (data.list && data.list[0]) || null;
 }
 
+// Per-import cache: the same applicant/company often repeats across rows, so
+// look them up once. Also lets a create seed the cache, preventing duplicates
+// (and extra requests) for later rows with the same identity.
+const pairsKey = (tableId, pairs) =>
+  tableId + "|" + (pairs || []).map(([c, v]) => `${c}=${String(v).trim()}`).join("&");
+
+async function findByPairsCached(tableId, pairs, cache) {
+  const key = pairsKey(tableId, pairs);
+  if (cache.has(key)) return cache.get(key);
+  const rec = await findByPairs(tableId, pairs);
+  cache.set(key, rec);
+  return rec;
+}
+
 async function createRecord(tableId, fields) {
   const created = await noco(`/api/v2/tables/${tableId}/records`, { method: "POST", body: fields || {} });
   return Array.isArray(created) ? created[0] : created;
@@ -400,14 +436,15 @@ app.post("/api/incubation/preview", async (req, res, next) => {
   try {
     const { rows = [] } = req.body;
     const plans = [];
+    const cache = new Map(); // dedupe repeated applicants/companies within the file
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const base = incubation.planRow(row, { status: INC_STATUS });
       let userAction = null, companyAction = null;
       if (base.process) {
-        const u = await findByPairs(T.userProfile, (row.match && row.match.user) || []);
+        const u = await findByPairsCached(T.userProfile, (row.match && row.match.user) || [], cache);
         userAction = u ? "link-existing" : "create";
-        const c = await findByPairs(T.companyProfile, (row.match && row.match.company) || []);
+        const c = await findByPairsCached(T.companyProfile, (row.match && row.match.company) || [], cache);
         companyAction = c ? "reuse-existing" : "create";
       }
       plans.push({ index: i, status: row.status, action: base.action, incubation: base.incubation, userAction, companyAction, messages: base.messages });
@@ -421,6 +458,9 @@ app.post("/api/incubation/commit", async (req, res, next) => {
   try {
     const { rows = [] } = req.body;
     const result = { createdUsers: 0, createdCompanies: 0, linked: 0, incubated: 0, skipped: 0, invalid: 0, failed: [] };
+    const cache = new Map();          // dedupe repeated applicants/companies within the file
+    const incubatedCompanies = new Set(); // companies incubated during this run
+    const linkedPairs = new Set();        // company:user pairs already linked this run
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
@@ -429,25 +469,38 @@ app.post("/api/incubation/commit", async (req, res, next) => {
         if (base.action === "invalid") { result.invalid++; continue; }
 
         // find-or-create user
-        let user = await findByPairs(T.userProfile, (row.match && row.match.user) || []);
-        if (!user) { user = await createRecord(T.userProfile, row.user || {}); result.createdUsers++; }
+        const uPairs = (row.match && row.match.user) || [];
+        let user = await findByPairsCached(T.userProfile, uPairs, cache);
+        if (!user) {
+          user = await createRecord(T.userProfile, row.user || {});
+          cache.set(pairsKey(T.userProfile, uPairs), user); // later duplicate rows reuse it
+          result.createdUsers++;
+        }
 
         // find-or-create company (inject the user's Id on create; reuse never overwrites)
-        let company = await findByPairs(T.companyProfile, (row.match && row.match.company) || []);
+        const cPairs = (row.match && row.match.company) || [];
+        let company = await findByPairsCached(T.companyProfile, cPairs, cache);
         if (!company) {
           const companyFields = Object.assign({}, row.company || {});
           companyFields[COMPANY_USER_ID_FIELD] = recId(user);
           company = await createRecord(T.companyProfile, companyFields);
+          cache.set(pairsKey(T.companyProfile, cPairs), company);
           result.createdCompanies++;
         }
 
-        // link company <-> user
-        const cuCol = await linkColumnToTable(T.companyProfile, T.userProfile, INC_HINTS.companyToUser);
-        await linkRecords(T.companyProfile, cuCol, recId(company), recId(user));
-        result.linked++;
+        // link company <-> user (once per pair per run)
+        const pairId = `${recId(company)}:${recId(user)}`;
+        if (!linkedPairs.has(pairId)) {
+          const cuCol = await linkColumnToTable(T.companyProfile, T.userProfile, INC_HINTS.companyToUser);
+          await linkRecords(T.companyProfile, cuCol, recId(company), recId(user));
+          linkedPairs.add(pairId);
+          result.linked++;
+        }
 
-        // incubation (approved only), idempotent per company
-        if (base.incubation && !(await companyAlreadyIncubated(recId(company)))) {
+        // incubation (approved only), idempotent per company (and within this run)
+        const companyId = recId(company);
+        if (base.incubation && !incubatedCompanies.has(String(companyId)) && !(await companyAlreadyIncubated(companyId))) {
+          incubatedCompanies.add(String(companyId));
           const fields = Object.assign({}, row.incubation || {});
           if (row.startDate) fields[INCUBATION_START_DATE_FIELD] = row.startDate;
           const inc = await createRecord(T.incubation, fields);
