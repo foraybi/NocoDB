@@ -86,3 +86,25 @@ test("userFieldsForCreate keeps only writable non-empty fields", () => {
   const fields = CSVKit.userFieldsForCreate(n, cfg.writableUserFields);
   assert.deepStrictEqual(fields, { en_full_name: "x", national_id: "1" });
 });
+
+test("Arabic UTF-8 values survive parse + mapFields (with quoted multi-line briefs)", () => {
+  const text =
+    'name,name_en,company_name_ar,business_brief_ar\r\n' +
+    '"سعود حسن الغامدي","SAUD ALGHAMDI","شركة الرمز الأفضل","وصف\nمتعدد الأسطر, وبه فاصلة"\n';
+  const { headers, rows } = CSVKit.parseCSV(text);
+  assert.deepStrictEqual(headers, ["name", "name_en", "company_name_ar", "business_brief_ar"]);
+  assert.strictEqual(rows.length, 1);
+  const userMap = { name: "full_name", name_en: "en_full_name" };
+  const companyMap = { company_name_ar: "company_name_ar", business_brief_ar: "business_brief_ar" };
+  const user = CSVKit.mapFields(rows[0], userMap);
+  const company = CSVKit.mapFields(rows[0], companyMap);
+  assert.strictEqual(user.full_name, "سعود حسن الغامدي");
+  assert.strictEqual(user.en_full_name, "SAUD ALGHAMDI");
+  assert.strictEqual(company.company_name_ar, "شركة الرمز الأفضل");
+  assert.strictEqual(company.business_brief_ar, "وصف\nمتعدد الأسطر, وبه فاصلة"); // newline + comma preserved
+});
+
+test("firstValue returns first non-empty among columns", () => {
+  const row = { national_id_number: "", residency_number: " 2195327370 ", passport_number: "X1" };
+  assert.strictEqual(CSVKit.firstValue(row, ["national_id_number", "residency_number", "passport_number"]), "2195327370");
+});

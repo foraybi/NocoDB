@@ -24,6 +24,8 @@ const CONFIG = {
     expert: "mb0s0zf680dx712",
     events: "mzcq4lgx8vxs7oo",
     attendees: "mdusjzr5zes3rmm", // events_registration_and_attendees_table (junction)
+    companyProfile: "msbt5wtpnrij5as",
+    incubation: "msmze54dz2aeihh", // incubated_startups
   },
 
   // ---------------------------------------------------------------------------
@@ -182,6 +184,81 @@ const CONFIG = {
     },
     // Link on events_table that points to the junction (for listing existing attendees).
     eventAttendeesLinkTitle: "events_registration_and_attendees_tables",
+  },
+
+  // ---------------------------------------------------------------------------
+  // INCUBATION APPLICANTS CSV IMPORT
+  // Drupal webform export -> user_profile + company_profile (+ incubation for approved).
+  // ---------------------------------------------------------------------------
+  incubationImport: {
+    // CSV column -> user_profile column (clean fields only; coded/UUID deferred).
+    userFieldMap: {
+      name: "full_name",
+      name_en: "en_full_name",
+      mobile: "phone_number",
+      mail: "Email",
+      national_id_number: "national_id",
+      passport_number: "passport_id",
+      dob: "birthdate",
+      // Deferred (coded/UUID): gender, user_type, nationalities, country, city
+    },
+    // User match keys, in priority order (first non-empty CSV value that finds a row wins).
+    userMatchKeys: [
+      { csv: "national_id_number", col: "national_id" },
+      { csv: "residency_number",   col: "national_id" }, // iqama stored in national_id if no dedicated col
+      { csv: "passport_number",    col: "passport_id" },
+      { csv: "mail",               col: "Email" },
+      { csv: "mobile",             col: "phone_number" },
+    ],
+
+    // CSV column -> company_profile column (1:1 machine names).
+    companyFieldMap: {
+      company_name_ar: "company_name_ar",
+      company_name_en: "company_name_en",
+      business_brief_ar: "business_brief_ar",
+      business_brief_en: "business_brief_en",
+      cr_number: "cr_number",
+      number_of_founding_team: "number_of_founding_team",
+      number_of_employees: "number_of_employees",
+      number_of_customers: "number_of_customers",
+      revenue_till_date_sar: "revenue_till_date_sar",
+      registration_date: "registration_date",
+      website: "website",
+      linkedin: "linkedin",
+      x: "x",
+      m_ldhy_trgb_fy_thqyqh_mn_khll_tsjylk_fy_brnmj_lhtdn: "m_ldhy_trgb_fy_thqyqh_mn_khll_tsjylk_fy_brnmj_lhtdn",
+      mhw_mstwk_lhly_fy_ryd_laaml: "mhw_mstwk_lhly_fy_ryd_laaml",
+      hl_trgb_blstfd_mn_mvplab: "hl_trgb_blstfd_mn_mvplab",
+      mqr_brnmj_l_htdn_ldhy_trgb_bltqdym_aalyh: "mqr_brnmj_l_htdn_ldhy_trgb_bltqdym_aalyh",
+      // Deferred (coded/UUID): company_industry, technologies_table,
+      // company_country_base, company_city_base, company_stage, other_technologies_used
+    },
+    // Company match keys, in priority order.
+    companyMatchKeys: [
+      { csv: "cr_number",       col: "cr_number" },
+      { csv: "company_name_en", col: "company_name_en" },
+      { csv: "company_name_ar", col: "company_name_ar" },
+    ],
+    // Display fields for the preview (company identity).
+    companyDisplay: { primary: "company_name_ar", secondary: "company_name_en" },
+
+    statusColumn: "registration_status",
+    status: {
+      approved: "approved",     // user + company + link + incubation (start date)
+      registered: "registered", // user + company + link, no incubation
+      // anything else (rejected / blank / unknown) -> skip row entirely
+    },
+
+    // incubated_startups column to write the start date into.
+    incubationStartDateField: "incubation_start_date",
+
+    // Optional title hints if a table has MORE THAN ONE link to the same target
+    // (backend resolves links by related-table id first; these disambiguate).
+    linkTitleHints: {
+      companyToUser: "",   // company_profile -> user_profile
+      incubationToCompany: "", // incubated_startups -> company_profile
+      incubationToUser: "",    // incubated_startups -> user_profile
+    },
   },
 };
 

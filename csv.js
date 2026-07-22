@@ -125,5 +125,25 @@
     return fields;
   }
 
-  return { parseCSV, autoMap, normalizeRow, userFieldsForCreate };
+  // Generic: map a raw CSV row through {csvCol -> targetCol}, keeping only
+  // non-empty trimmed values. Used by the incubation import for user + company.
+  function mapFields(rawRow, fieldMap) {
+    const out = {};
+    Object.keys(fieldMap).forEach((csvCol) => {
+      const v = clean(rawRow[csvCol]);
+      if (v !== "") out[fieldMap[csvCol]] = v;
+    });
+    return out;
+  }
+
+  // First non-empty trimmed value among the given CSV columns.
+  function firstValue(rawRow, csvCols) {
+    for (const c of csvCols) {
+      const v = clean(rawRow[c]);
+      if (v !== "") return v;
+    }
+    return "";
+  }
+
+  return { parseCSV, autoMap, normalizeRow, userFieldsForCreate, mapFields, firstValue, clean, digits };
 });

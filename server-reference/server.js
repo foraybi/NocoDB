@@ -16,6 +16,7 @@
 const express = require("express");
 const path = require("path");
 const { planRow, summarize } = require("./lib/matcher");
+const incubation = require("./lib/incubationMatcher");
 
 const app = express();
 app.use(express.json());
@@ -39,7 +40,15 @@ const T = {
   expert: "mb0s0zf680dx712",
   events: "mzcq4lgx8vxs7oo",
   attendees: "mdusjzr5zes3rmm", // junction: events_registration_and_attendees_table
+  companyProfile: "msbt5wtpnrij5as",
+  incubation: "msmze54dz2aeihh", // incubated_startups
 };
+
+// Incubation import settings (keep in sync with ../config.js incubationImport).
+const INC_STATUS = { approved: "approved", registered: "registered" };
+const INCUBATION_START_DATE_FIELD = "incubation_start_date";
+// Title hints only needed if a table has >1 link to the same target table.
+const INC_HINTS = { companyToUser: "", incubationToCompany: "", incubationToUser: "", companyToIncubation: "" };
 
 // Events search + attendee-import config (keep in sync with ../config.js).
 const EVENT_SEARCH_FIELDS = ["event_name_en", "event_name_ar"];
@@ -313,6 +322,122 @@ app.post("/api/attendees/commit", async (req, res, next) => {
         result.linked++;
         if (row.national_id) seenNat.add(String(row.national_id));
         seenProfile.add(pid);
+      } catch (e) {
+        result.failed.push({ index: i, reason: e.message });
+      }
+    }
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+// ============================================================================
+// INCUBATION APPLICANTS CSV IMPORT
+// ============================================================================
+
+// Find a record by trying ordered [column, value] match pairs (first hit wins).
+async function findByPairs(tableId, pairs) {
+  for (const [col, val] of pairs || []) {
+    if (val == null || String(val).trim() === "") continue;
+    const esc = String(val).replace(/[()]/g, "");
+    const data = await noco(`/api/v2/tables/${tableId}/records`, { query: { where: `(${col},eq,${esc})`, limit: 1 } });
+    if (data.list && data.list.length) return data.list[0];
+  }
+  return null;
+}
+
+async function createRecord(tableId, fields) {
+  const created = await noco(`/api/v2/tables/${tableId}/records`, { method: "POST", body: fields || {} });
+  return Array.isArray(created) ? created[0] : created;
+}
+
+// Resolve the link column on `tableId` whose related table is `targetTableId`.
+// Robust to naming; a titleHint disambiguates when several links share a target.
+const _linkToTableCache = {};
+async function linkColumnToTable(tableId, targetTableId, titleHint) {
+  const key = `${tableId}->${targetTableId}:${titleHint || ""}`;
+  if (_linkToTableCache[key]) return _linkToTableCache[key];
+  const meta = await noco(`/api/v2/meta/tables/${tableId}`);
+  const links = (meta.columns || []).filter((c) => {
+    if (c.uidt !== "Links" && c.uidt !== "LinkToAnotherRecord") return false;
+    const o = c.colOptions || {};
+    return o.fk_related_model_id === targetTableId || o.fk_related_table_id === targetTableId;
+  });
+  let col = links[0];
+  if (titleHint) { const h = links.find((c) => c.title === titleHint); if (h) col = h; }
+  if (!col) throw new Error(`No link column on table ${tableId} pointing to ${targetTableId}`);
+  _linkToTableCache[key] = col.id;
+  return col.id;
+}
+
+// Best-effort: does this company already have an incubation record linked?
+async function companyAlreadyIncubated(companyId) {
+  try {
+    const colId = await linkColumnToTable(T.companyProfile, T.incubation, INC_HINTS.companyToIncubation);
+    const data = await noco(`/api/v2/tables/${T.companyProfile}/links/${colId}/records/${companyId}`, { query: { limit: 1 } });
+    const list = Array.isArray(data) ? data : (data.list || []);
+    return list.length > 0;
+  } catch (e) {
+    return false; // link not resolvable -> can't check; proceed (may duplicate on re-run)
+  }
+}
+
+// POST /api/incubation/preview  { rows:[normalizedRow] }  -> dry-run plan
+app.post("/api/incubation/preview", async (req, res, next) => {
+  try {
+    const { rows = [] } = req.body;
+    const plans = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const base = incubation.planRow(row, { status: INC_STATUS });
+      let userAction = null, companyAction = null;
+      if (base.process) {
+        const u = await findByPairs(T.userProfile, (row.match && row.match.user) || []);
+        userAction = u ? "link-existing" : "create";
+        const c = await findByPairs(T.companyProfile, (row.match && row.match.company) || []);
+        companyAction = c ? "reuse-existing" : "create";
+      }
+      plans.push({ index: i, status: row.status, action: base.action, incubation: base.incubation, userAction, companyAction, messages: base.messages });
+    }
+    res.json({ totals: incubation.summarize(plans), rows: plans });
+  } catch (e) { next(e); }
+});
+
+// POST /api/incubation/commit  { rows:[normalizedRow(+startDate)] }  -> summary
+app.post("/api/incubation/commit", async (req, res, next) => {
+  try {
+    const { rows = [] } = req.body;
+    const result = { createdUsers: 0, createdCompanies: 0, linked: 0, incubated: 0, skipped: 0, invalid: 0, failed: [] };
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const base = incubation.planRow(row, { status: INC_STATUS });
+        if (base.action === "skip-rejected") { result.skipped++; continue; }
+        if (base.action === "invalid") { result.invalid++; continue; }
+
+        // find-or-create user
+        let user = await findByPairs(T.userProfile, (row.match && row.match.user) || []);
+        if (!user) { user = await createRecord(T.userProfile, row.user || {}); result.createdUsers++; }
+
+        // find-or-create company
+        let company = await findByPairs(T.companyProfile, (row.match && row.match.company) || []);
+        if (!company) { company = await createRecord(T.companyProfile, row.company || {}); result.createdCompanies++; }
+
+        // link company <-> user
+        const cuCol = await linkColumnToTable(T.companyProfile, T.userProfile, INC_HINTS.companyToUser);
+        await linkRecords(T.companyProfile, cuCol, recId(company), recId(user));
+        result.linked++;
+
+        // incubation (approved only), idempotent per company
+        if (base.incubation && !(await companyAlreadyIncubated(recId(company)))) {
+          const fields = {};
+          if (row.startDate) fields[INCUBATION_START_DATE_FIELD] = row.startDate;
+          const inc = await createRecord(T.incubation, fields);
+          const icCol = await linkColumnToTable(T.incubation, T.companyProfile, INC_HINTS.incubationToCompany);
+          await linkRecords(T.incubation, icCol, recId(inc), recId(company));
+          const iuCol = await linkColumnToTable(T.incubation, T.userProfile, INC_HINTS.incubationToUser);
+          await linkRecords(T.incubation, iuCol, recId(inc), recId(user));
+          result.incubated++;
+        }
       } catch (e) {
         result.failed.push({ index: i, reason: e.message });
       }

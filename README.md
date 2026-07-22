@@ -29,6 +29,7 @@ Browser (static SPA)  ──►  Your backend proxy  ──►  NocoDB V2 API
 |------|-----------|
 | `index.html`, `styles.css`, `app.js`, `i18n.js` | Consultation booking frontend. |
 | `events.html`, `events.js`, `csv.js` | Workshop attendee CSV-import frontend. |
+| `incubation.html`, `incubation.js` | Incubation applicants CSV-import frontend. |
 | `config.js` | **Edit this** — field names, display fields, link-column titles, CSV header map. |
 | `server-reference/` | A ready-to-run reference backend (Node + Express) that holds the token. Use it or adapt your own. |
 | `test/` | Node unit tests for `csv.js` and the backend `matcher` (run `npm test` or `node --test`). |
@@ -48,6 +49,19 @@ Implement these on your backend (the reference server already does). All request
 | `POST /api/events` | `{ field: value, ... }` | `{ "record": eventRecord }` |
 | `POST /api/attendees/preview` | `{ "eventId": <id>, "rows": [normalizedRow] }` | `{ "totals": {create,link,skipDuplicate,invalid}, "rows": [...] }` (writes nothing) |
 | `POST /api/attendees/commit` | `{ "eventId": <id>, "rows": [normalizedRow] }` | `{ createdUsers, linked, skippedDuplicates, invalid, failed:[] }` |
+| `POST /api/incubation/preview` | `{ "rows": [normalizedRow] }` | `{ "totals": {approved,registered,skipped,invalid}, "rows": [...] }` (writes nothing) |
+| `POST /api/incubation/commit` | `{ "rows": [normalizedRow(+startDate)] }` | `{ createdUsers, createdCompanies, linked, incubated, skipped, invalid, failed:[] }` |
+
+### Incubation applicants flow
+
+`incubation.html` imports the Drupal webform CSV export. For each row it finds-or-creates
+the person in `user_profile` (match: national_id → residency → passport → email → mobile) and
+the company in `company_profile` (match: cr_number → name), links them, and — **only when
+`registration_status == approved`** — creates an `incubated_startups` record with a start date
+entered per company in the preview. `registered` = user + company only; `rejected`/blank = the
+row is skipped entirely. Link columns are resolved by **related-table id** from the table meta,
+so exact link-column names aren't needed. Coded/UUID CSV columns (gender code, nationalities,
+industry, etc.) are deferred until lookups are provided.
 
 ### Events / attendee import flow
 
