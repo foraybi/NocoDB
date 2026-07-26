@@ -20,6 +20,7 @@ export const STRINGS = {
     shortcuts: "اختصارات لوحة المفاتيح",
     lightMode: "الوضع الفاتح",
     darkMode: "الوضع الداكن",
+    toggleNav: "طيّ/توسيع القائمة",
     next: "التالي",
     back: "رجوع",
     // incubation
@@ -127,6 +128,7 @@ export const STRINGS = {
     shortcuts: "Keyboard shortcuts",
     lightMode: "Light mode",
     darkMode: "Dark mode",
+    toggleNav: "Collapse / expand menu",
     next: "Next",
     back: "Back",
     // incubation

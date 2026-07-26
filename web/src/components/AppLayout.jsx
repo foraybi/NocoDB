@@ -7,9 +7,11 @@ import { useUiStore } from "../stores/uiStore";
 import { NAV } from "./nav";
 
 export function AppLayout() {
-  const [opened, { toggle }] = useDisclosure(false);
+  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false);
   const lang = useUiStore((s) => s.lang);
   const colorScheme = useUiStore((s) => s.colorScheme);
+  const navCollapsed = useUiStore((s) => s.navCollapsed);
+  const toggleNav = useUiStore((s) => s.toggleNav);
   const toggleLang = useUiStore((s) => s.toggleLang);
   const toggleColorScheme = useUiStore((s) => s.toggleColorScheme);
   const t = useUiStore((s) => s.t);
@@ -19,13 +21,15 @@ export function AppLayout() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: 264, breakpoint: "sm", collapsed: { mobile: !opened } }}
+      navbar={{ width: 264, breakpoint: "sm", collapsed: { mobile: !mobileOpened, desktop: navCollapsed } }}
       padding="lg"
     >
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            {/* mobile: open/close drawer; desktop: collapse/expand sidebar */}
+            <Burger opened={mobileOpened} onClick={toggleMobile} hiddenFrom="sm" size="sm" aria-label={t("toggleNav")} />
+            <Burger opened={!navCollapsed} onClick={toggleNav} visibleFrom="sm" size="sm" aria-label={t("toggleNav")} />
             <Text fw={800} size="lg" c="brand.6">مُنشآت</Text>
             <Text fw={600} size="sm" c="dimmed" visibleFrom="xs">{t("appName")}</Text>
           </Group>
@@ -65,7 +69,7 @@ export function AppLayout() {
                 rightSection={<Kbd size="xs">{item.shortcut}</Kbd>}
                 active={active}
                 variant="light"
-                onClick={() => opened && toggle()}
+                onClick={() => mobileOpened && toggleMobile()}
                 mb={4}
               />
             );

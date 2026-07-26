@@ -9,13 +9,15 @@ export const useUiStore = create(
     (set, get) => ({
       lang: "ar",
       colorScheme: "light",
+      navCollapsed: false, // desktop sidebar collapsed?
       toggleLang: () => set((s) => ({ lang: s.lang === "ar" ? "en" : "ar" })),
       setLang: (lang) => set({ lang }),
       toggleColorScheme: () =>
         set((s) => ({ colorScheme: s.colorScheme === "light" ? "dark" : "light" })),
+      toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
       t: (key) => translate(get().lang, key),
     }),
-    { name: "monshaat-ui", partialize: (s) => ({ lang: s.lang, colorScheme: s.colorScheme }) }
+    { name: "monshaat-ui", partialize: (s) => ({ lang: s.lang, colorScheme: s.colorScheme, navCollapsed: s.navCollapsed }) }
   )
 );
 
