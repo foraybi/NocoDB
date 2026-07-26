@@ -313,6 +313,7 @@ app.post("/api/attendees/preview", async (req, res, next) => {
     const { eventId, rows = [] } = req.body;
     const seenNat = await fetchEventAttendeeNationalIds(eventId);
     const seenProfile = new Set();
+    const maps = await buildAttendeeMaps(rows); // batched reads, no per-row calls
     const plans = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -322,7 +323,7 @@ app.post("/api/attendees/preview", async (req, res, next) => {
       } else if (row.national_id && seenNat.has(String(row.national_id))) {
         action = "skip-duplicate";
       } else {
-        const user = await findUser(row);
+        const user = matchAttendee(maps, row);
         matchedUserId = user ? recId(user) : null;
         if (matchedUserId != null && seenProfile.has(String(matchedUserId))) {
           action = "skip-duplicate";
@@ -344,14 +345,19 @@ app.post("/api/attendees/commit", async (req, res, next) => {
     const { eventId, rows = [] } = req.body;
     const seenNat = await fetchEventAttendeeNationalIds(eventId);
     const seenProfile = new Set();
+    const maps = await buildAttendeeMaps(rows); // batched reads up front
     const result = { createdUsers: 0, linked: 0, skippedDuplicates: 0, invalid: 0, failed: [] };
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
         if (row.__valid === false) { result.invalid++; continue; }
         if (row.national_id && seenNat.has(String(row.national_id))) { result.skippedDuplicates++; continue; }
-        let user = await findUser(row);
-        if (!user) { user = await createUserProfile(userFieldsForCreate(row)); result.createdUsers++; }
+        let user = matchAttendee(maps, row);
+        if (!user) {
+          user = await createUserProfile(userFieldsForCreate(row));
+          if (row.national_id) (maps.national_id = maps.national_id || new Map()).set(String(row.national_id), user);
+          result.createdUsers++;
+        }
         const pid = String(recId(user));
         if (seenProfile.has(pid)) { result.skippedDuplicates++; continue; }
         await linkAttendee(eventId, user, row);
@@ -431,24 +437,85 @@ async function companyAlreadyIncubated(companyId) {
   }
 }
 
+// Bulk-fetch existing records matching any of `values` in `col`, in chunks,
+// returning Map(String(value) -> record). ONE request per chunk instead of one
+// per row — essential for rate-limited NocoDB instances.
+async function bulkFindByColumn(tableId, col, values, chunkSize = 80) {
+  const map = new Map();
+  const uniq = [...new Set((values || []).filter((v) => v != null && String(v).trim() !== "").map(String))];
+  for (let i = 0; i < uniq.length; i += chunkSize) {
+    const chunk = uniq.slice(i, i + chunkSize);
+    const where = `(${col},in,${chunk.map((v) => v.replace(/[(),]/g, "")).join(",")})`;
+    const data = await noco(`/api/v2/tables/${tableId}/records`, { query: { where, limit: chunk.length } });
+    (data.list || []).forEach((rec) => {
+      const key = rec[col] != null ? String(rec[col]) : "";
+      if (key && !map.has(key)) map.set(key, rec);
+    });
+  }
+  return map;
+}
+
+// Build per-column lookup maps for every row's match pairs (user + company),
+// with a handful of bulk queries total.
+async function buildMatchMaps(rows) {
+  const userByCol = {}, compByCol = {};
+  rows.forEach((r) => {
+    ((r.match && r.match.user) || []).forEach(([c, v]) => (userByCol[c] = userByCol[c] || []).push(v));
+    ((r.match && r.match.company) || []).forEach(([c, v]) => (compByCol[c] = compByCol[c] || []).push(v));
+  });
+  const userMaps = {}, compMaps = {};
+  for (const [c, vals] of Object.entries(userByCol)) userMaps[c] = await bulkFindByColumn(T.userProfile, c, vals);
+  for (const [c, vals] of Object.entries(compByCol)) compMaps[c] = await bulkFindByColumn(T.companyProfile, c, vals);
+  return { userMaps, compMaps };
+}
+
+function matchInMaps(maps, pairs) {
+  for (const [c, v] of pairs || []) {
+    const m = maps[c];
+    if (m && m.has(String(v))) return m.get(String(v));
+  }
+  return null;
+}
+function addToMaps(maps, pairs, rec) {
+  (pairs || []).forEach(([c, v]) => {
+    if (v == null || String(v).trim() === "") return;
+    (maps[c] = maps[c] || new Map()).set(String(v), rec);
+  });
+}
+
+// Attendee (events) batched lookups: build user maps for the columns used to
+// match attendees, then resolve each row in memory (national_id -> phone -> email).
+async function buildAttendeeMaps(rows) {
+  const cols = { national_id: [], phone_number: [], Email: [] };
+  rows.forEach((r) => {
+    if (r.national_id) cols.national_id.push(r.national_id);
+    if (r.phone_number) cols.phone_number.push(r.phone_number);
+    if (r.Email) cols.Email.push(r.Email);
+  });
+  const maps = {};
+  for (const [c, vals] of Object.entries(cols)) maps[c] = await bulkFindByColumn(T.userProfile, c, vals);
+  return maps;
+}
+function matchAttendee(maps, row) {
+  return (row.national_id && maps.national_id.get(String(row.national_id)))
+    || (row.phone_number && maps.phone_number.get(String(row.phone_number)))
+    || (row.Email && maps.Email.get(String(row.Email))) || null;
+}
+
 // POST /api/incubation/preview  { rows:[normalizedRow] }  -> dry-run plan
 app.post("/api/incubation/preview", async (req, res, next) => {
   try {
     const { rows = [] } = req.body;
-    const plans = [];
-    const cache = new Map(); // dedupe repeated applicants/companies within the file
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
+    const { userMaps, compMaps } = await buildMatchMaps(rows); // few bulk queries, no per-row calls
+    const plans = rows.map((row, i) => {
       const base = incubation.planRow(row, { status: INC_STATUS });
       let userAction = null, companyAction = null;
       if (base.process) {
-        const u = await findByPairsCached(T.userProfile, (row.match && row.match.user) || [], cache);
-        userAction = u ? "link-existing" : "create";
-        const c = await findByPairsCached(T.companyProfile, (row.match && row.match.company) || [], cache);
-        companyAction = c ? "reuse-existing" : "create";
+        userAction = matchInMaps(userMaps, row.match && row.match.user) ? "link-existing" : "create";
+        companyAction = matchInMaps(compMaps, row.match && row.match.company) ? "reuse-existing" : "create";
       }
-      plans.push({ index: i, status: row.status, action: base.action, incubation: base.incubation, userAction, companyAction, messages: base.messages });
-    }
+      return { index: i, status: row.status, action: base.action, incubation: base.incubation, userAction, companyAction, messages: base.messages };
+    });
     res.json({ totals: incubation.summarize(plans), rows: plans });
   } catch (e) { next(e); }
 });
@@ -458,7 +525,7 @@ app.post("/api/incubation/commit", async (req, res, next) => {
   try {
     const { rows = [] } = req.body;
     const result = { createdUsers: 0, createdCompanies: 0, linked: 0, incubated: 0, skipped: 0, invalid: 0, failed: [] };
-    const cache = new Map();          // dedupe repeated applicants/companies within the file
+    const { userMaps, compMaps } = await buildMatchMaps(rows); // batched reads up front
     const incubatedCompanies = new Set(); // companies incubated during this run
     const linkedPairs = new Set();        // company:user pairs already linked this run
     for (let i = 0; i < rows.length; i++) {
@@ -468,23 +535,23 @@ app.post("/api/incubation/commit", async (req, res, next) => {
         if (base.action === "skip-rejected") { result.skipped++; continue; }
         if (base.action === "invalid") { result.invalid++; continue; }
 
-        // find-or-create user
+        // find-or-create user (match via prefetched maps; seed maps on create)
         const uPairs = (row.match && row.match.user) || [];
-        let user = await findByPairsCached(T.userProfile, uPairs, cache);
+        let user = matchInMaps(userMaps, uPairs);
         if (!user) {
           user = await createRecord(T.userProfile, row.user || {});
-          cache.set(pairsKey(T.userProfile, uPairs), user); // later duplicate rows reuse it
+          addToMaps(userMaps, uPairs, user); // later duplicate rows reuse it
           result.createdUsers++;
         }
 
         // find-or-create company (inject the user's Id on create; reuse never overwrites)
         const cPairs = (row.match && row.match.company) || [];
-        let company = await findByPairsCached(T.companyProfile, cPairs, cache);
+        let company = matchInMaps(compMaps, cPairs);
         if (!company) {
           const companyFields = Object.assign({}, row.company || {});
           companyFields[COMPANY_USER_ID_FIELD] = recId(user);
           company = await createRecord(T.companyProfile, companyFields);
-          cache.set(pairsKey(T.companyProfile, cPairs), company);
+          addToMaps(compMaps, cPairs, company);
           result.createdCompanies++;
         }
 
