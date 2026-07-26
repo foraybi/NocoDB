@@ -4,7 +4,7 @@
   "description": "Bilingual consultation + workshop-attendance site for a NocoDB base.",
   "private": true,
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "build": "cd web && npm install && npm run build",
     "dev:web": "cd web && npm run dev",
     "start": "node --env-file=server-reference/.env server-reference/server.js"
