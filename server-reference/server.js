@@ -518,8 +518,15 @@ app.post("/api/incubation/commit", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ---- Static frontend + error handler ---------------------------------------
-app.use(express.static(path.join(__dirname, "..")));
+// ---- Static frontend (built Vite SPA) + error handler ----------------------
+const DIST = path.join(__dirname, "..", "web", "dist");
+app.use(express.static(DIST));
+
+// SPA fallback: serve index.html for client-side routes (anything not /api/*).
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  res.sendFile(path.join(DIST, "index.html"), (e) => e && next(e));
+});
 
 app.use((err, _req, res, _next) => {
   console.error(err.message, err.body || "");

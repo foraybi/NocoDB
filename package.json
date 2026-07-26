@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "test": "node --test",
+    "build": "cd web && npm install && npm run build",
+    "dev:web": "cd web && npm run dev",
     "start": "node --env-file=server-reference/.env server-reference/server.js"
   }
 }

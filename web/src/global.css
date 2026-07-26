@@ -1,0 +1,5 @@
+html, body, #root { height: 100%; }
+body { margin: 0; }
+
+/* Numbers/IDs read as mono for a dashboard feel */
+.mono { font-family: var(--mantine-font-family-monospace); font-variant-numeric: tabular-nums; }
