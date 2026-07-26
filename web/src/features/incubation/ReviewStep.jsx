@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Card, Group, Text, Button, Stack, Table, Checkbox, Select, TextInput, Badge,
-  Alert, SimpleGrid, Skeleton, Pagination, Code, Divider,
+  Alert, SimpleGrid, Skeleton, Pagination, Code, Divider, Chip,
 } from "@mantine/core";
+import { useDebouncedValue } from "@mantine/hooks";
 import { useMutation } from "@tanstack/react-query";
 import { IconAlertTriangle, IconCircleCheck, IconDownload, IconArrowLeft, IconUpload } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -24,8 +25,16 @@ const payloadRow = (n) => ({ status: n.status, user: n.user, company: n.company,
 export function ReviewStep({ onBack }) {
   const t = useUiStore((s) => s.t);
   const st = useIncubationStore();
-  const { normalized, plans, issues, selected, startDates, search, page, report } = st;
+  const { normalized, plans, issues, selected, startDates, page, report } = st;
   const didPreview = useRef(false);
+
+  // Debounced search keeps typing snappy (no full-grid re-filter per keystroke).
+  const [searchInput, setSearchInput] = useState("");
+  const [search] = useDebouncedValue(searchInput, 250);
+  useEffect(() => { st.setPage(0); }, [search]); // eslint-disable-line
+
+  // Per-group column visibility — hide groups to declutter + speed up rendering.
+  const [vis, setVis] = useState({ user: true, company: true, incubation: true });
 
   const preview = useMutation({
     mutationFn: () => apiPost("/api/incubation/preview", { rows: normalized.map(payloadRow) }),
@@ -56,6 +65,11 @@ export function ReviewStep({ onBack }) {
     if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId);
     return { userCols: Array.from(u), companyCols, incCols: Array.from(i) };
   }, [plans, normalized]);
+
+  // Columns actually rendered (respect group visibility toggles).
+  const uCols = vis.user ? userCols : [];
+  const cCols = vis.company ? companyCols : [];
+  const iCols = vis.incubation ? incCols : [];
 
   // --- search filter + pagination ---
   const filtered = useMemo(() => {
@@ -106,15 +120,15 @@ export function ReviewStep({ onBack }) {
     return <Stack gap="md">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} height={40} radius="sm" />)}</Stack>;
   }
 
-  const cell = (n, cols, key, canEdit, showData, rowIdx) =>
+  const cell = (n, cols, key, canEdit, showData, rowIdx, cls) =>
     cols.map((col) => {
-      if (col === F.companyUserId) return <Table.Td key={col}><Text c="dimmed" fs="italic" size="xs">(auto)</Text></Table.Td>;
-      if (!showData) return <Table.Td key={col} />;
+      if (col === F.companyUserId) return <Table.Td key={col} className={cls}><Text c="dimmed" fs="italic" size="xs">(auto)</Text></Table.Td>;
+      if (!showData) return <Table.Td key={col} className={cls} />;
       const v = n[key] && n[key][col] != null ? String(n[key][col]) : "";
       const iss = issueAt(rowIdx, key, col);
       if (iss && canEdit) {
         return (
-          <Table.Td key={col}>
+          <Table.Td key={col} className={cls}>
             <TextInput
               size="xs" defaultValue={v} error={iss.action === "dropped"}
               title={`${iss.action}: ${iss.reason}\noriginal: ${iss.raw}`}
@@ -124,7 +138,7 @@ export function ReviewStep({ onBack }) {
           </Table.Td>
         );
       }
-      return <Table.Td key={col}><Text size="xs" title={v} lineClamp={1}>{truncate(v)}</Text></Table.Td>;
+      return <Table.Td key={col} className={cls}><Text size="xs" title={v} lineClamp={1}>{truncate(v)}</Text></Table.Td>;
     });
 
   return (
@@ -144,8 +158,8 @@ export function ReviewStep({ onBack }) {
       <Group justify="space-between" wrap="wrap" gap="sm">
         <TextInput
           placeholder={t("searchPlaceholder")}
-          value={search}
-          onChange={(e) => st.setSearch(e.currentTarget.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.currentTarget.value)}
           style={{ flex: 1, minWidth: 240 }}
         />
         <Group gap="md">
@@ -159,6 +173,16 @@ export function ReviewStep({ onBack }) {
         </Group>
       </Group>
 
+      {/* column-group visibility toggles (colorful, declutter + speed up) */}
+      <Chip.Group multiple value={Object.keys(vis).filter((k) => vis[k])} onChange={(v) => setVis({ user: v.includes("user"), company: v.includes("company"), incubation: v.includes("incubation") })}>
+        <Group gap="xs">
+          <Text size="sm" c="dimmed">{t("colGroups")}</Text>
+          <Chip value="user" color="brand" variant="light" size="sm">user_profile</Chip>
+          <Chip value="company" color="teal" variant="light" size="sm">company_profile</Chip>
+          <Chip value="incubation" color="orange" variant="light" size="sm">incubated_startups</Chip>
+        </Group>
+      </Chip.Group>
+
       {/* table */}
       {filtered.length === 0 ? (
         <Card><Text ta="center" c="dimmed" py="lg">{t("noMatch")}</Text></Card>
@@ -168,9 +192,9 @@ export function ReviewStep({ onBack }) {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th colSpan={5} ta="center" style={{ opacity: 0.6 }}>—</Table.Th>
-                <Table.Th colSpan={userCols.length} c="brand.6">user_profile</Table.Th>
-                <Table.Th colSpan={companyCols.length} c="teal.7">company_profile</Table.Th>
-                <Table.Th colSpan={incCols.length} c="orange.7">incubated_startups</Table.Th>
+                {uCols.length > 0 && <Table.Th colSpan={uCols.length} className="cg-user-h">user_profile</Table.Th>}
+                {cCols.length > 0 && <Table.Th colSpan={cCols.length} className="cg-company-h">company_profile</Table.Th>}
+                {iCols.length > 0 && <Table.Th colSpan={iCols.length} className="cg-inc-h">incubated_startups</Table.Th>}
               </Table.Tr>
               <Table.Tr>
                 <Table.Th w={36} />
@@ -178,9 +202,9 @@ export function ReviewStep({ onBack }) {
                 <Table.Th>{t("colStatus")}</Table.Th>
                 <Table.Th>{t("colAction")}</Table.Th>
                 <Table.Th>{t("startDateLabel")}</Table.Th>
-                {userCols.map((c) => <Table.Th key={c}>{c}</Table.Th>)}
-                {companyCols.map((c) => <Table.Th key={c}>{c}</Table.Th>)}
-                {incCols.map((c) => <Table.Th key={c}>{c}</Table.Th>)}
+                {uCols.map((c) => <Table.Th key={c} className="cg-user-h">{c}</Table.Th>)}
+                {cCols.map((c) => <Table.Th key={c} className="cg-company-h">{c}</Table.Th>)}
+                {iCols.map((c) => <Table.Th key={c} className="cg-inc-h">{c}</Table.Th>)}
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -219,9 +243,9 @@ export function ReviewStep({ onBack }) {
                           onChange={(ev) => st.setStartDate(p.index, ev.currentTarget.value)} />
                       ) : <Text c="dimmed" size="xs">—</Text>}
                     </Table.Td>
-                    {cell(n, userCols, "user", canEdit, showData, p.index)}
-                    {cell(n, companyCols, "company", canEdit, showData, p.index)}
-                    {cell(n, incCols, "incubation", canEdit && e.incubate, e.incubate && !invalid, p.index)}
+                    {cell(n, uCols, "user", canEdit, showData, p.index, "cg-user")}
+                    {cell(n, cCols, "company", canEdit, showData, p.index, "cg-company")}
+                    {cell(n, iCols, "incubation", canEdit && e.incubate, e.incubate && !invalid, p.index, "cg-inc")}
                   </Table.Tr>
                 );
               })}

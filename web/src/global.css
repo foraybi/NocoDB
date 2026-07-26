@@ -3,3 +3,13 @@ body { margin: 0; }
 
 /* Numbers/IDs read as mono for a dashboard feel */
 .mono { font-family: var(--mantine-font-family-monospace); font-variant-numeric: tabular-nums; }
+
+/* Colour-coded column groups in the incubation preview table.
+   Headers use opaque Mantine light variants (needed for sticky header);
+   body cells use a subtle theme-aware tint. */
+.cg-user-h { background: var(--mantine-color-brand-light); color: var(--mantine-color-brand-light-color); }
+.cg-company-h { background: var(--mantine-color-teal-light); color: var(--mantine-color-teal-light-color); }
+.cg-inc-h { background: var(--mantine-color-orange-light); color: var(--mantine-color-orange-light-color); }
+.cg-user { background: light-dark(rgba(138, 47, 149, 0.045), rgba(157, 66, 163, 0.12)); }
+.cg-company { background: light-dark(rgba(13, 148, 136, 0.05), rgba(45, 212, 191, 0.1)); }
+.cg-inc { background: light-dark(rgba(217, 119, 6, 0.05), rgba(251, 146, 60, 0.1)); }
