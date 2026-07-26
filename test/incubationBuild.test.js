@@ -69,6 +69,13 @@ test("id_type: residency -> iqama; passport -> no-id; gender 2 -> Female", () =>
   assert.strictEqual(pass.user.id_type, "no saudi id or iqama");
 });
 
+test("CSV company_profile URL maps to incubated_startups 'Intro Link'", () => {
+  const r = buildRow({ name: "x", company_profile: "https://innov.example.sa/p/123", registration_status: "approved" }, IMP, TODAY);
+  assert.strictEqual(r.incubation["Intro Link"], "https://innov.example.sa/p/123");
+  const empty = buildRow({ name: "y", company_profile: "", registration_status: "approved" }, IMP, TODAY);
+  assert.ok(!("Intro Link" in empty.incubation)); // omitted when blank
+});
+
 test("company name falls back to EN when AR empty; brief too", () => {
   const r = buildRow({ name: "z", company_name_en: "OnlyEn", business_brief_en: "onlyEnBrief", registration_status: "approved" }, IMP, TODAY);
   assert.strictEqual(r.incubation["Company name"], "OnlyEn");

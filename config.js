@@ -260,7 +260,7 @@ const CONFIG = {
         website: "url", linkedin: "url", x: "url",
       },
       incubation: {
-        Email: "email", "Team Size": "number", Add_date: "date",
+        Email: "email", "Team Size": "number", Add_date: "date", "Intro Link": "url",
       },
     },
     // Display fields for the preview (company identity).
@@ -292,6 +292,7 @@ const CONFIG = {
       incSector: "Sector",
       incTechUsed: "Tech Used",
       incTeamSize: "Team Size",
+      incIntroLink: "Intro Link", // from CSV company_profile (a URL)
     },
     // CSV source columns used for derived values.
     csv: {
@@ -312,6 +313,7 @@ const CONFIG = {
       name: "name",
       nameEn: "name_en",
       crNumber: "cr_number",
+      companyProfile: "company_profile", // URL -> incubated_startups "Intro Link"
     },
     programValue: "الاحتضان",
     genderMap: { "1": "Male", "2": "Female" },

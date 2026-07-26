@@ -52,6 +52,7 @@
     if (industry) inc[F.incSector] = industry;
     if (tech) inc[F.incTechUsed] = tech;
     const team = val(C.teamSize); if (team) inc[F.incTeamSize] = team;
+    const introLink = val(C.companyProfile); if (introLink) inc[F.incIntroLink] = introLink;
 
     // Match pairs: numeric-target columns must be digits only, otherwise NocoDB
     // rejects the filter (ERR_FILTER_VERIFICATION_FAILED on Number columns).

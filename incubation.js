@@ -254,12 +254,15 @@
         uCells + cCells + iCells + `</tr>`;
     }).join("");
 
+    // field-review message renders above the search/selection toolbar
+    $("#issuesArea").innerHTML = issuesPanel();
+
     const area = $("#previewArea");
     const pager = renderPager(filtered.length, pageCount, start, pagePlans.length);
     const body = filtered.length
       ? `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`
       : `<div class="empty-state"><p>${escapeHtml(t("noMatch"))}</p></div>`;
-    area.innerHTML = issuesPanel() + pager + body + (filtered.length ? pager : "");
+    area.innerHTML = pager + body + (filtered.length ? pager : "");
 
     updateSelectionToolbar(filtered);
 
