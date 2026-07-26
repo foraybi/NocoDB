@@ -42,6 +42,11 @@
     <section class="step-panel hidden" data-panel="2">
       <h2 data-i18n="previewIncubationTitle">معاينة قبل الاستيراد</h2>
       <div id="previewTotals" class="totals-grid"></div>
+      <div id="previewToolbar" class="preview-toolbar hidden">
+        <input id="rowSearch" type="search" data-i18n-ph="searchIncPlaceholder" placeholder="ابحث..." autocomplete="off" />
+        <label class="selall"><input type="checkbox" id="selAll" /> <span data-i18n="selectAll">تحديد الكل</span></label>
+        <span id="selCount" class="muted"></span>
+      </div>
       <div id="previewArea" style="margin-top:14px"></div>
       <div id="importReport" class="review hidden" style="margin-top:14px"></div>
     </section>

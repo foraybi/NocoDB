@@ -7,8 +7,20 @@
   const cfg = window.CONFIG;
   const IMP = cfg.incubationImport;
 
-  const state = { step: 1, csv: null, normalized: [], plans: [], startDates: {}, issues: [], page: 0 };
+  const state = {
+    step: 1, csv: null, normalized: [], plans: [], startDates: {}, issues: [], page: 0,
+    search: "", selected: new Set(), headers: [], fileType: "csv",
+  };
   const PAGE_SIZE = 10;
+
+  // canonical "key.field" -> original CSV column, for exporting edits in the
+  // original file format. Built by inverting the user/company field maps.
+  const REVERSE = (() => {
+    const m = {};
+    Object.entries(IMP.userFieldMap).forEach(([csv, col]) => { m["user." + col] = csv; });
+    Object.entries(IMP.companyFieldMap).forEach(([csv, col]) => { m["company." + col] = csv; });
+    return m;
+  })();
   const todayISO = () => new Date().toISOString().slice(0, 10);
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -46,12 +58,17 @@
       if (!file) return;
       $("#csvFileName").textContent = file.name;
       const isExcel = /\.xlsx?$/i.test(file.name);
+      state.fileType = isExcel ? "xlsx" : "csv";
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const rows = isExcel ? parseXlsx(reader.result) : CSVKit.parseCSV(reader.result).rows;
+          const parsed = isExcel ? parseXlsx(reader.result) : CSVKit.parseCSV(reader.result);
+          const rows = parsed.rows;
+          state.headers = parsed.headers || (rows[0] ? Object.keys(rows[0]) : []);
           state.csv = { rows };
-          state.page = 0; // new file -> back to the first page
+          state.page = 0;             // new file -> first page
+          state.search = "";
+          state.selected = new Set(); // (re)initialized after preview
           state.normalized = buildNormalized(rows, todayISO());
           state.normalized.forEach((r) => { r._origStatus = r.status; }); // status editability
           // Local validation BEFORE any NocoDB call: auto-corrects safe values,
@@ -72,11 +89,14 @@
     });
   }
 
-  // Parse the first sheet of an xlsx/xls into header-keyed row objects (strings).
+  // Parse the first sheet of an xlsx/xls into { headers, rows } (strings).
   function parseXlsx(arrayBuffer) {
     const wb = XLSX.read(arrayBuffer, { type: "array" });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
+    const headers = (aoa[0] || []).map((h) => String(h).trim());
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+    return { headers, rows };
   }
 
   // ---- Step 2: preview -------------------------------------------------------
@@ -84,15 +104,35 @@
     $("#previewTotals").innerHTML = `<div class="muted">${t("previewing")}</div>`;
     $("#previewArea").innerHTML = "";
     hide($("#importReport"));
+    hide($("#previewToolbar"));
     try {
       const data = await apiPost("/api/incubation/preview", { rows: payloadRows(state.normalized) });
       state.plans = data.rows;
+      // default selection: every selectable (approved/registered) row
+      state.selected = new Set(state.plans.filter(selectable).map((p) => p.index));
+      show($("#previewToolbar"));
       renderTotals(data.totals);
-      renderPreviewTable(data.rows);
+      renderPreviewTable();
     } catch (err) {
       console.error(err);
       $("#previewTotals").innerHTML = `<div class="error-text">${t("genericError")}</div>`;
     }
+  }
+
+  // A row can be selected/uploaded only if it will actually be processed.
+  function selectable(p) {
+    return p.action !== "invalid" && effect(state.normalized[p.index].status).processed;
+  }
+  // Text used by the search box (name/company/status/fields).
+  function searchText(p) {
+    const n = state.normalized[p.index];
+    const parts = [String(p.index + 1), n.status];
+    [n.user, n.company].forEach((o) => o && Object.values(o).forEach((v) => parts.push(String(v))));
+    return NORM(parts.join(" "));
+  }
+  function currentFiltered() {
+    const q = NORM(state.search);
+    return q ? state.plans.filter((p) => searchText(p).includes(q)) : state.plans;
   }
 
   // rows sent to the backend (drop nothing extra; incubation + match travel with them).
@@ -128,47 +168,46 @@
     return { processed: false, incubate: false };
   }
 
-  // Full "table view": columns are  # | status | action | incubation date | <fields...>
-  // Rows are paginated (PAGE_SIZE per page); columns are derived from ALL rows
-  // so the layout stays stable as you page through.
-  function renderPreviewTable(plans) {
-    const F = IMP.fields;
+  // Full "table view": ☑ | # | status | action | incubation date | <fields...>
+  // Rows are search-filtered then paginated; columns come from ALL rows so the
+  // layout stays stable. Rejected rows show their info read-only.
+  function renderPreviewTable() {
+    const plans = state.plans, F = IMP.fields;
     const userCols = collectCols(plans, (r) => r.user);
     const companyCols = collectCols(plans, (r) => r.company);
     if (!companyCols.includes(F.companyUserId)) companyCols.push(F.companyUserId); // server-side (auto)
     const incCols = collectCols(plans, (r) => r.incubation);
 
-    const pageCount = Math.max(1, Math.ceil(plans.length / PAGE_SIZE));
-    if (state.page > pageCount - 1) state.page = pageCount - 1;
-    if (state.page < 0) state.page = 0;
+    const filtered = currentFiltered();
+    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    state.page = Math.min(Math.max(0, state.page), pageCount - 1);
     const start = state.page * PAGE_SIZE;
-    const pagePlans = plans.slice(start, start + PAGE_SIZE);
+    const pagePlans = filtered.slice(start, start + PAGE_SIZE);
 
     const groupHead =
       `<tr class="grp">` +
-      `<th colspan="4" class="grp-meta">—</th>` +
+      `<th colspan="5" class="grp-meta">—</th>` +
       `<th colspan="${userCols.length}" class="grp-user">user_profile</th>` +
       `<th colspan="${companyCols.length}" class="grp-company">company_profile</th>` +
       `<th colspan="${incCols.length}" class="grp-inc">incubated_startups</th>` +
       `</tr>`;
     const fieldHead =
       `<tr>` +
-      `<th>#</th><th>${t("colStatus")}</th><th>${t("colAction")}</th><th>${t("startDateLabel")}</th>` +
+      `<th class="sel-col">☑</th><th>#</th><th>${t("colStatus")}</th><th>${t("colAction")}</th><th>${t("startDateLabel")}</th>` +
       userCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       companyCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       incCols.map((c) => `<th>${escapeHtml(c)}</th>`).join("") +
       `</tr>`;
 
-    // issue lookup: rowIndex -> payloadKey -> field
     const issueAt = (rowIdx, key, field) =>
       state.issues.find((i) => i.row === rowIdx && i.key === key && i.field === field);
 
-    // A flagged field renders as an editable input so the user can adjust it.
-    const cell = (obj, col, auto, rowIdx, key) => {
+    // canEdit=false renders the value as read-only text (used for rejected rows).
+    const cell = (obj, col, auto, rowIdx, key, canEdit) => {
       if (col === F.companyUserId && auto) return `<td class="auto">(auto)</td>`;
-      const iss = issueAt(rowIdx, key, col);
       const v = obj && obj[col] != null ? String(obj[col]) : "";
-      if (iss) {
+      const iss = issueAt(rowIdx, key, col);
+      if (iss && canEdit) {
         const tip = `${iss.action}: ${iss.reason}\noriginal: ${iss.raw}`;
         return `<td class="issue ${iss.action}"><input class="fix-input" data-row="${rowIdx}" data-key="${escapeHtml(key)}" ` +
           `data-field="${escapeHtml(col)}" value="${escapeHtml(v)}" title="${escapeHtml(tip)}" /></td>`;
@@ -179,8 +218,7 @@
     const statusValues = [IMP.status.approved, IMP.status.registered, "rejected"];
     function statusControl(p) {
       const n = state.normalized[p.index];
-      // editable only when the ORIGINAL status is "registered"
-      if (NORM(n._origStatus) !== NORM(IMP.status.registered)) {
+      if (NORM(n._origStatus) !== NORM(IMP.status.registered)) { // editable only when originally registered
         return `<td>${escapeHtml(n.status || "")}</td>`;
       }
       const opts = statusValues.map((v) =>
@@ -192,10 +230,14 @@
       const n = state.normalized[p.index];
       const eff = effect(n.status);
       const invalid = p.action === "invalid";
-      const actionText = invalid ? "invalid"
-        : (eff.processed
-          ? (eff.incubate ? `${p.userAction}/${p.companyAction}+inc` : `${p.userAction}/${p.companyAction}`)
-          : "skip");
+      const canEdit = eff.processed && !invalid;      // approved/registered
+      const showData = !invalid;                       // rejected shows read-only info too
+      const actionText = invalid ? "invalid" : (eff.processed ? (eff.incubate ? `${p.userAction}/${p.companyAction}+inc` : `${p.userAction}/${p.companyAction}`) : "skip");
+
+      // selection checkbox
+      const sel = selectable(p);
+      const selCell = `<td class="sel-col"><input type="checkbox" class="row-sel" data-row="${p.index}"` +
+        `${sel ? "" : " disabled"}${sel && state.selected.has(p.index) ? " checked" : ""} /></td>`;
 
       let dateCell = `<td class="auto">—</td>`;
       if (eff.incubate && !invalid) {
@@ -203,54 +245,71 @@
         dateCell = `<td><input type="date" data-row="${p.index}" value="${state.startDates[p.index]}" class="inc-date" /></td>`;
       }
 
-      const active = eff.processed && !invalid;
-      const uCells = userCols.map((c) => active ? cell(n.user, c, false, p.index, "user") : `<td></td>`).join("");
-      const cCells = companyCols.map((c) => active ? cell(n.company, c, c === F.companyUserId, p.index, "company") : `<td></td>`).join("");
-      const iCells = incCols.map((c) => (eff.incubate && !invalid) ? cell(n.incubation, c, false, p.index, "incubation") : `<td></td>`).join("");
+      const uCells = userCols.map((c) => showData ? cell(n.user, c, false, p.index, "user", canEdit) : `<td></td>`).join("");
+      const cCells = companyCols.map((c) => showData ? cell(n.company, c, c === F.companyUserId, p.index, "company", canEdit) : `<td></td>`).join("");
+      const iCells = incCols.map((c) => (eff.incubate && !invalid) ? cell(n.incubation, c, false, p.index, "incubation", canEdit) : `<td></td>`).join("");
 
-      return `<tr class="${active ? "" : "skip"}">` +
-        `<td>${p.index + 1}</td>` + statusControl(p) + `<td>${escapeHtml(actionText)}</td>` + dateCell +
+      return `<tr class="${canEdit ? "" : "skip"}">` +
+        selCell + `<td>${p.index + 1}</td>` + statusControl(p) + `<td>${escapeHtml(actionText)}</td>` + dateCell +
         uCells + cCells + iCells + `</tr>`;
     }).join("");
 
     const area = $("#previewArea");
-    const pager = renderPager(plans.length, pageCount, start, pagePlans.length);
-    area.innerHTML = issuesPanel() + pager +
-      `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>` +
-      pager;
+    const pager = renderPager(filtered.length, pageCount, start, pagePlans.length);
+    const body = filtered.length
+      ? `<div class="table-scroll"><table class="grid-table"><thead>${groupHead}${fieldHead}</thead><tbody>${rowsHtml}</tbody></table></div>`
+      : `<div class="empty-state"><p>${escapeHtml(t("noMatch"))}</p></div>`;
+    area.innerHTML = issuesPanel() + pager + body + (filtered.length ? pager : "");
+
+    updateSelectionToolbar(filtered);
 
     $$(".pg-btn", area).forEach((b) =>
       b.addEventListener("click", () => {
         const to = b.dataset.go;
-        if (to === "prev") state.page--;
-        else if (to === "next") state.page++;
-        else state.page = Number(to);
-        renderPreviewTable(state.plans);
+        if (to === "prev") state.page--; else if (to === "next") state.page++; else state.page = Number(to);
+        renderPreviewTable();
         area.scrollIntoView({ block: "nearest" });
       }));
-
     $$(".inc-date", area).forEach((inp) =>
       inp.addEventListener("change", () => { state.startDates[Number(inp.dataset.row)] = inp.value; }));
-
-    // Editing a flagged field updates the payload and clears/keeps the flag.
+    $$(".row-sel", area).forEach((chk) =>
+      chk.addEventListener("change", () => {
+        const idx = Number(chk.dataset.row);
+        if (chk.checked) state.selected.add(idx); else state.selected.delete(idx);
+        updateSelectionToolbar(currentFiltered());
+      }));
     $$(".fix-input", area).forEach((inp) =>
       inp.addEventListener("change", () => {
         const idx = Number(inp.dataset.row), key = inp.dataset.key, field = inp.dataset.field;
         const v = inp.value.trim();
-        if (v === "") delete state.normalized[idx][key][field];
-        else state.normalized[idx][key][field] = v;
-        // re-validate just this row, replacing its issues
-        state.issues = state.issues.filter((i) => i.row !== idx);
-        state.issues = state.issues.concat(
-          ImportValidate.validateRow(state.normalized[idx], IMP.validate, idx));
-        renderPreviewTable(state.plans);
+        if (v === "") delete state.normalized[idx][key][field]; else state.normalized[idx][key][field] = v;
+        state.issues = state.issues.filter((i) => i.row !== idx)
+          .concat(ImportValidate.validateRow(state.normalized[idx], IMP.validate, idx));
+        renderPreviewTable();
       }));
     $$(".status-sel", area).forEach((sel) =>
       sel.addEventListener("change", () => {
-        state.normalized[Number(sel.dataset.row)].status = sel.value;
+        const idx = Number(sel.dataset.row);
+        state.normalized[idx].status = sel.value;
+        // keep selection consistent: drop rows that are no longer selectable
+        const p = state.plans.find((x) => x.index === idx);
+        if (!selectable(p)) state.selected.delete(idx); else state.selected.add(idx);
         renderTotals(recomputeTotals());
-        renderPreviewTable(state.plans); // re-render to reflect new action/date/fields
+        renderPreviewTable();
       }));
+  }
+
+  // Update the search/select-all toolbar (checkbox state + counts).
+  function updateSelectionToolbar(filtered) {
+    const totalSelectable = state.plans.filter(selectable).length;
+    const info = $("#selCount");
+    if (info) info.textContent = `${state.selected.size} / ${totalSelectable} ${t("selectedCount")}`;
+    const selAll = $("#selAll");
+    if (selAll) {
+      const selFiltered = filtered.filter(selectable);
+      selAll.checked = selFiltered.length > 0 && selFiltered.every((p) => state.selected.has(p.index));
+      selAll.indeterminate = !selAll.checked && selFiltered.some((p) => state.selected.has(p.index));
+    }
   }
 
   // Pager: ‹ prev | 1 2 3 … | next ›  + "showing a–b of N"
@@ -310,27 +369,96 @@
   }
 
   async function runCommit() {
+    // upload only the SELECTED, selectable rows
+    const chosen = state.plans.filter((p) => selectable(p) && state.selected.has(p.index));
+    if (!chosen.length) { toast(t("selectSomething"), "error"); return; }
+
     $("#confirmBtn").disabled = true;
     toast(t("importing"));
     try {
-      const rows = payloadRows(state.normalized).map((r, i) => {
-        if (state.startDates[i]) r.startDate = state.startDates[i];
+      const rows = chosen.map((p) => {
+        const r = payloadRows([state.normalized[p.index]])[0];
+        if (state.startDates[p.index]) r.startDate = state.startDates[p.index];
         return r;
       });
       const rep = await apiPost("/api/incubation/commit", { rows });
-      const el = $("#importReport");
-      el.innerHTML = `<div class="rv-section"><h3>${t("importDone")}</h3>
-        <div class="rv-row"><span class="rv-key">${t("repUsers")}</span><span class="rv-val">${rep.createdUsers}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repCompanies")}</span><span class="rv-val">${rep.createdCompanies}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repLinked")}</span><span class="rv-val">${rep.linked}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repIncubated")}</span><span class="rv-val">${rep.incubated}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repSkipped")}</span><span class="rv-val">${rep.skipped}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repInvalid")}</span><span class="rv-val">${rep.invalid}</span></div>
-        <div class="rv-row"><span class="rv-key">${t("repFailed")}</span><span class="rv-val">${(rep.failed || []).length}</span></div></div>`;
-      show(el);
+      renderReport(rep, chosen.length);
       toast(t("importDone"), "success");
     } catch (err) { console.error(err); toast(t("submitError"), "error"); }
     finally { $("#confirmBtn").disabled = false; }
+  }
+
+  function renderReport(rep, uploaded) {
+    const el = $("#importReport");
+    el.innerHTML = `<div class="rv-section"><h3>${t("importDone")}</h3>
+      <div class="rv-row"><span class="rv-key">${t("repUploaded")}</span><span class="rv-val">${uploaded}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repUsers")}</span><span class="rv-val">${rep.createdUsers}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repCompanies")}</span><span class="rv-val">${rep.createdCompanies}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repLinked")}</span><span class="rv-val">${rep.linked}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repIncubated")}</span><span class="rv-val">${rep.incubated}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repSkipped")}</span><span class="rv-val">${rep.skipped}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repInvalid")}</span><span class="rv-val">${rep.invalid}</span></div>
+      <div class="rv-row"><span class="rv-key">${t("repFailed")}</span><span class="rv-val">${(rep.failed || []).length}</span></div>
+      </div>
+      <div class="dl-row"><span class="muted">${t("downloadHint")}</span>
+        <button type="button" class="btn ghost" id="dlCsv">${t("downloadCsv")}</button>
+        <button type="button" class="btn ghost" id="dlXlsx">${t("downloadExcel")}</button>
+      </div>`;
+    show(el);
+    $("#dlCsv").addEventListener("click", () => downloadEdited("csv"));
+    $("#dlXlsx").addEventListener("click", () => downloadEdited("xlsx"));
+  }
+
+  // ---- Download the edited data in the ORIGINAL file format ------------------
+  // Same columns/order as the uploaded file; applies the edited status and any
+  // corrected user/company fields (mapped back to their original columns).
+  function buildExportRows() {
+    return state.csv.rows.map((raw, i) => {
+      const n = state.normalized[i];
+      const out = Object.assign({}, raw);
+      if (n) {
+        out[IMP.statusColumn] = n.status; // edited status
+        Object.entries(REVERSE).forEach(([nkey, origCol]) => {
+          if (!(origCol in raw)) return;
+          const dot = nkey.indexOf(".");
+          const key = nkey.slice(0, dot), field = nkey.slice(dot + 1);
+          const present = n[key] && Object.prototype.hasOwnProperty.call(n[key], field);
+          out[origCol] = present ? n[key][field] : "";
+        });
+      }
+      return out;
+    });
+  }
+
+  function toCSV(headers, rows) {
+    const esc = (v) => {
+      const s = String(v == null ? "" : v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const lines = [headers.map(esc).join(",")];
+    rows.forEach((r) => lines.push(headers.map((h) => esc(r[h])).join(",")));
+    return "﻿" + lines.join("\r\n"); // BOM so Excel renders Arabic correctly
+  }
+
+  function triggerDownload(filename, data, mime) {
+    const blob = new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function downloadEdited(format) {
+    const headers = state.headers.length ? state.headers : Object.keys(state.csv.rows[0] || {});
+    const rows = buildExportRows();
+    if (format === "xlsx") {
+      const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+      triggerDownload("incubation-edited.xlsx", XLSX.write(wb, { type: "array", bookType: "xlsx" }), "application/octet-stream");
+    } else {
+      triggerDownload("incubation-edited.csv", toCSV(headers, rows), "text/csv;charset=utf-8");
+    }
   }
 
   // ---- wizard nav ------------------------------------------------------------
@@ -357,6 +485,21 @@
     applyLanguage("ar");
     $("#langToggle").addEventListener("click", () => applyLanguage(i18nState.lang === "ar" ? "en" : "ar"));
     initUpload();
+
+    // search box (persistent in the DOM so typing keeps focus)
+    $("#rowSearch").addEventListener("input", (e) => {
+      state.search = e.target.value.trim();
+      state.page = 0;
+      renderPreviewTable();
+    });
+    // select-all toggles every selectable row in the current (filtered) view
+    $("#selAll").addEventListener("change", (e) => {
+      currentFiltered().filter(selectable).forEach((p) => {
+        if (e.target.checked) state.selected.add(p.index); else state.selected.delete(p.index);
+      });
+      renderPreviewTable();
+    });
+
     $("#nextBtn").addEventListener("click", () => { if (canLeave(state.step)) gotoStep(2); });
     $("#backBtn").addEventListener("click", () => gotoStep(1));
     $("#confirmBtn").addEventListener("click", runCommit);
