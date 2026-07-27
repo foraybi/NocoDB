@@ -9,7 +9,7 @@ export function OverviewPage() {
   const t = useUiStore((s) => s.t);
   const navigate = useNavigate();
   const tools = NAV.filter((n) => n.key !== "overview");
-  const goLabel = { consultations: "goConsultations", events: "goEvents", incubation: "goIncubation", techAdoption: "goTechAdoption" };
+  const goLabel = { consultations: "goConsultations", events: "goEvents", incubation: "goIncubation", techAdoption: "goTechAdoption", vouchers: "goVouchers" };
 
   return (
     <>

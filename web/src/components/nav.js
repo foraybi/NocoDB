@@ -4,6 +4,7 @@ import {
   IconCalendarEvent,
   IconBuildingSkyscraper,
   IconRocket,
+  IconTicket,
 } from "@tabler/icons-react";
 
 // Single source of truth for navigation — used by the sidebar AND the command
@@ -14,4 +15,5 @@ export const NAV = [
   { key: "events", path: "/events", labelKey: "events", icon: IconCalendarEvent, shortcut: "g e" },
   { key: "incubation", path: "/incubation", labelKey: "incubation", icon: IconBuildingSkyscraper, shortcut: "g i" },
   { key: "techAdoption", path: "/tech-adoption", labelKey: "techAdoption", icon: IconRocket, shortcut: "g t" },
+  { key: "vouchers", path: "/vouchers", labelKey: "vouchers", icon: IconTicket, shortcut: "g v" },
 ];

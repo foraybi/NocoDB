@@ -45,7 +45,18 @@ const T = {
   companyProfile: "msbt5wtpnrij5as",
   incubation: "msmze54dz2aeihh", // incubated_startups
   techAdoption: "mm7wmx8m3jsovrj",
+  voucherType: "vwm8s3ijw9togl3i",
+  digitalVouchers: "muzyau6buu5xwfr",
+  voucherProvider: "mo77shlm8fbhnfe",
 };
+
+// Digital-vouchers column names (from the three voucher tables' schema).
+const V = {
+  provider: { title: "Title", service: "Service", amount: "amount", total: "total vouchers provided", remaining: "remaining vouchers" },
+  type: { title: "Title", service: "Service", amount: "amount", total: "total vouchers provided" },
+  digital: { title: "Title", date: "vocuher_date" }, // note source typo "vocuher_date"
+};
+const VOUCHER_PROVIDER_SEARCH = ["Title", "Service"];
 
 // tech_adoption column names (scalar id links; note source typo "compnay_id").
 const TA = {
@@ -693,6 +704,100 @@ app.post("/api/tech-adoption/commit", async (req, res, next) => {
       }
     }
     res.json(result);
+  } catch (e) { next(e); }
+});
+
+// ============================================================================
+// DIGITAL VOUCHERS
+// ============================================================================
+
+// POST /api/companies  (create a company_profile row when search finds none)
+app.post("/api/companies", async (req, res, next) => {
+  try {
+    const record = await createRecord(T.companyProfile, req.body || {});
+    res.json({ record });
+  } catch (e) { next(e); }
+});
+
+// GET /api/vouchers/providers?search=  -> voucher cards (provider + its linked type)
+app.get("/api/vouchers/providers", async (req, res, next) => {
+  try {
+    const where = likeWhere(VOUCHER_PROVIDER_SEARCH, req.query.search);
+    const data = await noco(`/api/v2/tables/${T.voucherProvider}/records`, { query: { where, limit: 100 } });
+    const providers = data.list || [];
+    let typeColId = null;
+    try { typeColId = await linkColumnToTable(T.voucherProvider, T.voucherType); } catch { /* not linked */ }
+    const list = [];
+    for (const p of providers) {
+      let type = null;
+      if (typeColId) {
+        try {
+          const ld = await noco(`/api/v2/tables/${T.voucherProvider}/links/${typeColId}/records/${recId(p)}`, { query: { limit: 1 } });
+          const tt = (Array.isArray(ld) ? ld : (ld.list || []))[0];
+          if (tt) type = { id: recId(tt), title: tt[V.type.title], amount: tt[V.type.amount] };
+        } catch { /* leave type null */ }
+      }
+      list.push({
+        id: recId(p),
+        title: p[V.provider.title],
+        service: p[V.provider.service],
+        amount: p[V.provider.amount],
+        total: p[V.provider.total],
+        remaining: p[V.provider.remaining],
+        type,
+      });
+    }
+    res.json({ list });
+  } catch (e) { next(e); }
+});
+
+// POST /api/vouchers/catalog  { provider:{...}, type:{...} }  -> create both + link them
+app.post("/api/vouchers/catalog", async (req, res, next) => {
+  try {
+    const { provider = {}, type = {} } = req.body;
+    const providerRec = await createRecord(T.voucherProvider, provider);
+    const typeRec = await createRecord(T.voucherType, type);
+    // best-effort: link provider <-> type if a link column exists
+    try {
+      const colId = await linkColumnToTable(T.voucherProvider, T.voucherType);
+      await linkRecords(T.voucherProvider, colId, recId(providerRec), recId(typeRec));
+    } catch { /* not linkable — leave unlinked */ }
+    res.json({
+      card: {
+        id: recId(providerRec),
+        title: providerRec[V.provider.title],
+        service: providerRec[V.provider.service],
+        amount: providerRec[V.provider.amount],
+        total: providerRec[V.provider.total],
+        remaining: providerRec[V.provider.remaining],
+        type: { id: recId(typeRec), title: typeRec[V.type.title], amount: typeRec[V.type.amount] },
+      },
+    });
+  } catch (e) { next(e); }
+});
+
+// POST /api/digital-vouchers  { companyId, providerId, typeId, expertId, date, title }
+// Creates the assignment row and links company / provider / type / expert.
+app.post("/api/digital-vouchers", async (req, res, next) => {
+  try {
+    const { companyId, providerId, typeId, expertId, date, title } = req.body;
+    const rec = {};
+    if (title) rec[V.digital.title] = title;
+    if (date) rec[V.digital.date] = date;
+    const created = await createRecord(T.digitalVouchers, rec);
+    const id = recId(created);
+    const link = async (targetTable, relatedId) => {
+      if (relatedId == null) return;
+      try {
+        const colId = await linkColumnToTable(T.digitalVouchers, targetTable);
+        await linkRecords(T.digitalVouchers, colId, id, relatedId);
+      } catch (e) { console.warn(`voucher link ${targetTable} failed: ${e.message}`); }
+    };
+    await link(T.companyProfile, companyId);
+    await link(T.voucherProvider, providerId);
+    await link(T.voucherType, typeId);
+    await link(T.expert, expertId);
+    res.json({ record: created });
   } catch (e) { next(e); }
 });
 

@@ -275,6 +275,33 @@ export const CONFIG = {
       ],
     },
   },
+
+  vouchers: {
+    companyDisplay: { primary: "company_name_ar", secondary: "company_name_en", tertiary: "cr_number" },
+    // Create a new company_profile inline when search finds none.
+    companyCreateFields: [
+      { key: "company_name_ar", type: "text", required: true, labelEn: "Company name (Arabic)", labelAr: "اسم الشركة (عربي)" },
+      { key: "company_name_en", type: "text", required: false, labelEn: "Company name (English)", labelAr: "اسم الشركة (إنجليزي)" },
+      { key: "cr_number", type: "text", required: false, labelEn: "CR number", labelAr: "رقم السجل التجاري" },
+    ],
+    // "+" adds a new voucher to the catalog: creates a provider AND a type.
+    newProviderFields: [
+      { key: "Title", type: "text", required: true, labelEn: "Provider name", labelAr: "اسم مزوّد القسيمة" },
+      { key: "Service", type: "text", required: false, labelEn: "Service", labelAr: "الخدمة" },
+      { key: "amount", type: "number", required: false, labelEn: "Voucher amount", labelAr: "قيمة القسيمة" },
+      { key: "total vouchers provided", type: "number", required: false, labelEn: "Total vouchers", labelAr: "إجمالي القسائم" },
+    ],
+    newTypeFields: [
+      { key: "Title", type: "text", required: true, labelEn: "Voucher type", labelAr: "نوع القسيمة" },
+      { key: "Service", type: "text", required: false, labelEn: "Service", labelAr: "الخدمة" },
+      { key: "amount", type: "number", required: false, labelEn: "Amount", labelAr: "القيمة" },
+    ],
+    // The only fields left after picking a card.
+    assignFields: [
+      { key: "voucher_date", type: "date", required: true, labelEn: "Voucher date", labelAr: "تاريخ القسيمة" },
+      { key: "voucher_name", type: "text", required: false, labelEn: "Voucher name / reference", labelAr: "اسم/مرجع القسيمة" },
+    ],
+  },
 };
 
 export default CONFIG;

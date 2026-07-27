@@ -13,6 +13,7 @@ import { ConsultationsPage } from "./features/consultations/ConsultationsPage.js
 import { EventsPage } from "./features/events/EventsPage.jsx";
 import { IncubationPage } from "./features/incubation/IncubationPage.jsx";
 import { TechAdoptionPage } from "./features/techAdoption/TechAdoptionPage.jsx";
+import { VouchersPage } from "./features/vouchers/VouchersPage.jsx";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +64,7 @@ export default function App() {
                 <Route path="/events" element={<EventsPage />} />
                 <Route path="/incubation" element={<IncubationPage />} />
                 <Route path="/tech-adoption" element={<TechAdoptionPage />} />
+                <Route path="/vouchers" element={<VouchersPage />} />
                 <Route path="*" element={<Navigate to="/overview" replace />} />
               </Route>
             </Routes>
