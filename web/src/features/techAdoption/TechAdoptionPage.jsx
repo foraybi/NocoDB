@@ -6,7 +6,7 @@ import { notifications } from "@mantine/notifications";
 import { PageHeader } from "../../components/PageHeader.jsx";
 import { SearchSelect } from "../../components/SearchSelect.jsx";
 import { DynamicForm, validateRequired } from "../../components/DynamicForm.jsx";
-import { ComingSoon } from "../../components/ComingSoon.jsx";
+import { BulkImport } from "./BulkImport.jsx";
 import { useUiStore } from "../../stores/uiStore";
 import { CONFIG } from "../../lib/config.js";
 import { apiPost } from "../../api/client.js";
@@ -25,7 +25,7 @@ export function TechAdoptionPage() {
           <Tabs.Tab value="bulk" leftSection={<IconUpload size={16} stroke={1.6} />}>{t("taBulk")}</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="single"><AddSession /></Tabs.Panel>
-        <Tabs.Panel value="bulk"><ComingSoon label={t("comingSoon")} /></Tabs.Panel>
+        <Tabs.Panel value="bulk"><BulkImport /></Tabs.Panel>
       </Tabs>
     </>
   );

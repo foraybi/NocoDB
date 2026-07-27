@@ -648,6 +648,54 @@ app.post("/api/tech-adoption", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/tech-adoption/preview  { rows:[{match,session,__hasIdentity}] }  -> dry-run
+app.post("/api/tech-adoption/preview", async (req, res, next) => {
+  try {
+    const { rows = [] } = req.body;
+    const { userMaps, compMaps } = await buildMatchMaps(rows); // batched reads
+    const totals = { create: 0, skipped: 0 };
+    const plans = rows.map((row, i) => {
+      const company = matchInMaps(compMaps, row.match && row.match.company);
+      if (!company) { totals.skipped++; return { index: i, action: "skip-no-company", messages: ["company not found"] }; }
+      const user = matchInMaps(userMaps, row.match && row.match.user);
+      totals.create++;
+      return { index: i, action: "create-session", companyName: company.company_name_en || company.company_name_ar || "", userMatched: !!user };
+    });
+    res.json({ totals, rows: plans });
+  } catch (e) { next(e); }
+});
+
+// POST /api/tech-adoption/commit  { rows }  -> summary
+app.post("/api/tech-adoption/commit", async (req, res, next) => {
+  try {
+    const { rows = [] } = req.body;
+    const { userMaps, compMaps } = await buildMatchMaps(rows);
+    const result = { created: 0, skipped: 0, failed: [] };
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const company = matchInMaps(compMaps, row.match && row.match.company);
+        if (!company) { result.skipped++; continue; } // tech adoption needs an existing company
+        const user = matchInMaps(userMaps, row.match && row.match.user);
+        const rec = Object.assign({}, row.session || {});
+        rec[TA.companyName] = company.company_name_en || company.company_name_ar || "";
+        rec[TA.companyId] = recId(company);
+        const uid = user ? recId(user) : company.user_id;
+        if (uid != null && String(uid).trim() !== "") {
+          rec[TA.userId] = uid;
+          const name = user ? (user.en_full_name || user.full_name || "") : await ownerName(uid);
+          if (name) rec[TA.beneficiaryName] = name;
+        }
+        await createRecord(T.techAdoption, rec);
+        result.created++;
+      } catch (e) {
+        result.failed.push({ index: i, reason: e.message });
+      }
+    }
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
 // ---- Static frontend (built Vite SPA) + error handler ----------------------
 const DIST = path.join(__dirname, "..", "web", "dist");
 app.use(express.static(DIST));
