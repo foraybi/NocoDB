@@ -17,7 +17,11 @@ import { apiGet, apiPost } from "../../api/client.js";
 
 const VC = CONFIG.vouchers;
 const recId = (r) => r && (r.Id ?? r.id ?? r.ID);
-const fmt = (n) => (n == null || n === "" ? "—" : n);
+const fmt = (n) => {
+  if (n == null || n === "") return "—";
+  const num = Number(n);
+  return Number.isFinite(num) ? num.toLocaleString("en-US") : n;
+};
 
 export function VouchersPage() {
   const t = useUiStore((s) => s.t);
