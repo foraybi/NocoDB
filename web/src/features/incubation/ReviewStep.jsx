@@ -33,8 +33,9 @@ export function ReviewStep({ onBack }) {
   const [search] = useDebouncedValue(searchInput, 250);
   useEffect(() => { st.setPage(0); }, [search]); // eslint-disable-line
 
-  // Per-group column visibility — hide groups to declutter + speed up rendering.
-  const [vis, setVis] = useState({ user: true, company: true, incubation: true });
+  // Per-group column visibility (persisted) — hide groups to declutter + speed up.
+  const vis = useUiStore((s) => s.previewGroups);
+  const setVis = useUiStore((s) => s.setPreviewGroups);
 
   const preview = useMutation({
     mutationFn: () => apiPost("/api/incubation/preview", { rows: normalized.map(payloadRow) }),

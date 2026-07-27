@@ -19,7 +19,7 @@ function useNavSequence(navigate) {
       }
       if (armed) {
         armed = false; clearTimeout(timer);
-        const map = { o: "/overview", c: "/consultations", e: "/events", i: "/incubation" };
+        const map = { o: "/overview", c: "/consultations", e: "/events", i: "/incubation", t: "/tech-adoption" };
         const path = map[e.key.toLowerCase()];
         if (path) { e.preventDefault(); navigate(path); }
       }
