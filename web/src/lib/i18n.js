@@ -112,6 +112,16 @@ export const STRINGS = {
     reviewExpert: "المستشار",
     selectUserFirst: "الرجاء اختيار أو إنشاء مستفيد.",
     selectExpertFirst: "الرجاء اختيار مستشار.",
+    // tech adoption
+    taAddSession: "إضافة جلسة",
+    taBulk: "استيراد مجمّع",
+    selectedCompany: "الشركة المحددة:",
+    selectedConsultant: "المستشار المحدد:",
+    searchCompany: "ابحث عن شركة بالاسم أو السجل التجاري...",
+    noCompany: "لا توجد شركة مطابقة.",
+    submitSession: "حفظ الجلسة",
+    sessionSaved: "تم حفظ الجلسة بنجاح.",
+    selectCompanyFirst: "الرجاء اختيار شركة.",
   },
   en: {
     appName: "Innovation Center Platform",
@@ -224,6 +234,16 @@ export const STRINGS = {
     reviewExpert: "Consultant",
     selectUserFirst: "Please select or create a beneficiary.",
     selectExpertFirst: "Please select a consultant.",
+    // tech adoption
+    taAddSession: "Add session",
+    taBulk: "Bulk import",
+    selectedCompany: "Selected company:",
+    selectedConsultant: "Selected consultant:",
+    searchCompany: "Search a company by name or CR number...",
+    noCompany: "No matching company.",
+    submitSession: "Save session",
+    sessionSaved: "Session saved.",
+    selectCompanyFirst: "Please select a company.",
   },
 };
 

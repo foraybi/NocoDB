@@ -44,7 +44,15 @@ const T = {
   attendees: "mdusjzr5zes3rmm", // junction: events_registration_and_attendees_table
   companyProfile: "msbt5wtpnrij5as",
   incubation: "msmze54dz2aeihh", // incubated_startups
+  techAdoption: "mm7wmx8m3jsovrj",
 };
+
+// tech_adoption column names (scalar id links; note source typo "compnay_id").
+const TA = {
+  companyName: "Company_Name", userId: "user_id", companyId: "compnay_id",
+  expertId: "expert_id", beneficiaryName: "beneficiary_name_en",
+};
+const COMPANY_SEARCH_TEXT_FIELDS = ["company_name_en", "company_name_ar"];
 
 // Incubation import settings (keep in sync with ../config.js incubationImport).
 const INC_STATUS = { approved: "approved", registered: "registered" };
@@ -582,6 +590,61 @@ app.post("/api/incubation/commit", async (req, res, next) => {
       }
     }
     res.json(result);
+  } catch (e) { next(e); }
+});
+
+// ============================================================================
+// TECH ADOPTION
+// ============================================================================
+
+// Company search where: like across name fields, plus eq on cr_number when digits.
+function buildCompanyWhere(q) {
+  if (!q) return undefined;
+  const esc = String(q).replace(/[()]/g, "");
+  const clauses = COMPANY_SEARCH_TEXT_FIELDS.map((f) => `(${f},like,%${esc}%)`);
+  if (/^\d+$/.test(esc)) clauses.push(`(cr_number,eq,${esc})`);
+  return clauses.join("~or");
+}
+
+// GET /api/companies?search=  -> { list } (company_profile picker)
+app.get("/api/companies", async (req, res, next) => {
+  try {
+    const data = await noco(`/api/v2/tables/${T.companyProfile}/records`, {
+      query: { where: buildCompanyWhere(req.query.search), limit: 25 },
+    });
+    res.json({ list: data.list || [] });
+  } catch (e) { next(e); }
+});
+
+// Resolve beneficiary_name_en from a user id (best-effort).
+async function ownerName(userId) {
+  if (!userId) return "";
+  try {
+    const d = await noco(`/api/v2/tables/${T.userProfile}/records`, { query: { where: `(Id,eq,${userId})`, limit: 1 } });
+    const u = d.list && d.list[0];
+    return u ? (u.en_full_name || u.full_name || "") : "";
+  } catch { return ""; }
+}
+
+// POST /api/tech-adoption  { company, expertId, fields }  -> { record }
+// Stores company/user/expert IDs in the scalar link columns.
+app.post("/api/tech-adoption", async (req, res, next) => {
+  try {
+    const { company, expertId, fields = {} } = req.body;
+    const rec = { ...fields };
+    if (company) {
+      rec[TA.companyName] = company.company_name_en || company.company_name_ar || "";
+      rec[TA.companyId] = recId(company);
+      const uid = company.user_id;
+      if (uid != null && String(uid).trim() !== "") {
+        rec[TA.userId] = uid;
+        const name = await ownerName(uid);
+        if (name) rec[TA.beneficiaryName] = name;
+      }
+    }
+    if (expertId != null) rec[TA.expertId] = expertId;
+    const record = await createRecord(T.techAdoption, rec);
+    res.json({ record });
   } catch (e) { next(e); }
 });
 

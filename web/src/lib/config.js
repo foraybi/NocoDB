@@ -237,6 +237,44 @@ export const CONFIG = {
     incubationStartDateField: "incubation_start_date",
     linkTitleHints: { companyToUser: "", incubationToCompany: "", incubationToUser: "" },
   },
+
+  // ---- TECH ADOPTION (tech_adoption mm7wmx8m3jsovrj) ----
+  // Links are stored as IDs in scalar columns (user_id / compnay_id / expert_id).
+  techAdoption: {
+    // Session fields staff fill (single form) and CSV columns (bulk import).
+    formFields: [
+      { key: "project_name", type: "text", required: false, labelEn: "Project name", labelAr: "اسم المشروع" },
+      { key: "tech_adoption_date", type: "date", required: true, labelEn: "Session date", labelAr: "تاريخ الجلسة" },
+      { key: "tech_adoption_description", type: "textarea", required: false, labelEn: "Description", labelAr: "الوصف" },
+      { key: "tech_adoption_impact", type: "textarea", required: false, labelEn: "Impact", labelAr: "الأثر" },
+    ],
+    // tech_adoption column names (note the source typo "compnay_id").
+    fields: {
+      companyName: "Company_Name",
+      userId: "user_id",
+      companyId: "compnay_id",
+      expertId: "expert_id",
+      beneficiaryName: "beneficiary_name_en",
+    },
+    // Company picker display (company_profile).
+    companyDisplay: { primary: "company_name_ar", secondary: "company_name_en", tertiary: "cr_number" },
+    // company_profile column holding the owner user's Id (set during incubation import).
+    companyOwnerIdField: "user_id",
+    validate: { session: { tech_adoption_date: "date" } },
+    // Bulk import: match existing company + user (same keys as incubation).
+    bulk: {
+      companyMatchKeys: [
+        { csv: "cr_number", col: "cr_number", numeric: true },
+        { csv: "company_name_en", col: "company_name_en" },
+        { csv: "company_name_ar", col: "company_name_ar" },
+      ],
+      userMatchKeys: [
+        { csv: "national_id_number", col: "national_id", numeric: true },
+        { csv: "mail", col: "Email" },
+        { csv: "mobile", col: "phone_number", numeric: true },
+      ],
+    },
+  },
 };
 
 export default CONFIG;
