@@ -36,7 +36,16 @@ export function AttendeeUploadStep({ onBack, onNext }) {
   return (
     <Stack gap="lg">
       <Card padding="xl">
-        <Dropzone onDrop={handleDrop} accept={["text/csv", ".csv", ".xlsx", ".xls"]} maxFiles={1} multiple={false}>
+        <Dropzone
+          onDrop={handleDrop}
+          accept={[
+            "text/csv", ".csv",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx",
+            "application/vnd.ms-excel", ".xls",
+          ]}
+          maxFiles={1}
+          multiple={false}
+        >
           <Group justify="center" gap="xl" mih={140} style={{ pointerEvents: "none" }}>
             <ThemeIcon size={52} radius="xl" variant="light"><IconFileSpreadsheet size={28} stroke={1.5} /></ThemeIcon>
             <div>
