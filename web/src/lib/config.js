@@ -68,19 +68,37 @@ export const CONFIG = {
 
   // ---- EVENTS ----
   events: {
-    searchFields: ["event_name_en", "event_name_ar"],
-    display: { primary: "event_name_en", secondary: "event_name_ar", tertiary: "event_starting_date" },
+    searchFields: ["event_name_ar", "event_name_en"],
+    display: { primary: "event_name_ar", secondary: "event_name_en", tertiary: "event_starting_date" },
+    regionsPath: "/api/regions",
+    // event_type drives whether an end date is required.
+    eventTypeOptions: [
+      { value: "workshop", labelEn: "Workshop", labelAr: "ورشة عمل", requiresEnd: true },
+      { value: "event", labelEn: "Event", labelAr: "فعالية" },
+      { value: "bootcamp", labelEn: "Bootcamp", labelAr: "معسكر", requiresEnd: true },
+      { value: "challenges", labelEn: "Challenges", labelAr: "تحديات" },
+      { value: "visit", labelEn: "Visit", labelAr: "زيارة" },
+    ],
+    deliveryTypeOptions: [
+      { value: "حضوري", labelEn: "In-person", labelAr: "حضوري" },
+      { value: "افتراضي", labelEn: "Virtual", labelAr: "افتراضي" },
+      { value: "هجين", labelEn: "Hybrid", labelAr: "هجين" },
+    ],
+    // Rendered by EventForm; `type` selects the control. Copies applied server-side:
+    // event_starting_date -> event_date, event_holding_regions name -> event_city.
     addEventFields: [
-      { key: "event_name_en", type: "text", required: true, labelEn: "Event name (EN)", labelAr: "اسم الفعالية (إنجليزي)" },
-      { key: "event_name_ar", type: "text", required: false, labelEn: "Event name (AR)", labelAr: "اسم الفعالية (عربي)" },
-      { key: "event_starting_date", type: "date", required: false, labelEn: "Start date", labelAr: "تاريخ البداية" },
-      { key: "event_ending_date", type: "date", required: false, labelEn: "End date", labelAr: "تاريخ النهاية" },
+      { key: "event_name_ar", type: "text", required: true, labelEn: "Event name (Arabic)", labelAr: "اسم الفعالية (عربي)" },
+      { key: "event_presenter_name", type: "text", required: true, labelEn: "Presenter name", labelAr: "اسم المقدّم" },
+      { key: "event_description_ar", type: "textarea", required: true, labelEn: "Description (Arabic)", labelAr: "الوصف (عربي)" },
+      { key: "event_description_en", type: "textarea", required: false, labelEn: "Description (English)", labelAr: "الوصف (إنجليزي)" },
+      { key: "event_type", type: "select", required: false, optionsKey: "eventTypeOptions", labelEn: "Event type", labelAr: "نوع الفعالية" },
+      { key: "event_starting_date", type: "date", required: true, labelEn: "Start date", labelAr: "تاريخ البداية" },
+      { key: "event_ending_date", type: "date", required: false, requiredForTypes: ["workshop", "bootcamp"], labelEn: "End date", labelAr: "تاريخ النهاية" },
+      { key: "event_holding_regions", type: "region", required: false, labelEn: "Holding region", labelAr: "منطقة الإقامة" },
+      { key: "event_delivery_type", type: "select", required: false, optionsKey: "deliveryTypeOptions", labelEn: "Delivery type", labelAr: "طريقة التقديم" },
       { key: "event_venue", type: "text", required: false, labelEn: "Venue", labelAr: "المكان" },
-      { key: "event_presenter_name", type: "text", required: false, labelEn: "Presenter", labelAr: "المقدّم" },
-      { key: "event_type", type: "select", required: false, labelEn: "Type", labelAr: "النوع", options: [] },
-      { key: "event_city", type: "select", required: false, labelEn: "City", labelAr: "المدينة",
-        options: [{ value: "Riyadh", labelEn: "Riyadh", labelAr: "الرياض" }] },
-      { key: "event_delivery_type", type: "select", required: false, labelEn: "Delivery", labelAr: "طريقة التقديم", options: [] },
+      { key: "event_organizing_entity", type: "text", required: false, labelEn: "Organizing entity", labelAr: "الجهة المنظّمة" },
+      { key: "event_attachments", type: "file", required: false, labelEn: "Attachment (image)", labelAr: "مرفق (صورة)" },
     ],
   },
 

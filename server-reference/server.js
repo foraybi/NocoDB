@@ -48,6 +48,13 @@ const T = {
   voucherType: "vwm8s3ijw9togl3i",
   digitalVouchers: "muzyau6buu5xwfr",
   voucherProvider: "mo77shlm8fbhnfe",
+  regions: "c54hdyvjr74fu23", // event holding regions
+};
+
+// Event scalar-field copies + attachment column.
+const EVENT_FIELDS = {
+  startDate: "event_starting_date", dateCopy: "event_date",
+  city: "event_city", attachments: "event_attachments",
 };
 
 // Digital-vouchers column names (from the three voucher tables' schema).
@@ -77,7 +84,8 @@ const EVENT_SEARCH_FIELDS = ["event_name_en", "event_name_ar"];
 const JUNCTION = {
   userLinkTitle: "user_profiles",
   eventLinkTitle: "events_tables",
-  userIdField: "user_id",
+  userIdField: "user_id",              // system user_profile Id
+  eventNameField: "event_name_en1",    // event name written on the junction row
   attendanceField: "event_attendance_status",
 };
 
@@ -176,6 +184,18 @@ async function columnId(tableId, title) {
   return col.id;
 }
 
+// Resolve the primary-value (display) column title of a table (cached).
+const _pvCache = {};
+async function primaryValueField(tableId) {
+  if (_pvCache[tableId]) return _pvCache[tableId];
+  const meta = await noco(`/api/v2/meta/tables/${tableId}`);
+  const cols = meta.columns || [];
+  const pv = cols.find((c) => c.pv) || cols.find((c) => c.uidt === "SingleLineText") || cols[0];
+  const title = pv ? pv.title : "Title";
+  _pvCache[tableId] = title;
+  return title;
+}
+
 // Link one related record into a Link column of a row on the given table.
 function linkRecords(tableId, linkColId, recordId, relatedId) {
   return noco(
@@ -251,7 +271,7 @@ app.post("/api/consultations", async (req, res, next) => {
 // EVENTS + ATTENDEE CSV IMPORT
 // ============================================================================
 const EVENT_ATTENDEES_LINK_TITLE = "events_registration_and_attendees_tables";
-const WRITABLE_USER_FIELDS = ["en_full_name", "phone_number", "national_id", "Email", "gender", "region_of_residence"];
+const WRITABLE_USER_FIELDS = ["en_full_name", "phone_number", "national_id", "Email", "gender", "region_of_residence", "user_type"];
 
 function userFieldsForCreate(row) {
   const f = {};
@@ -277,26 +297,36 @@ async function createUserProfile(fields) {
   return Array.isArray(created) ? created[0] : created;
 }
 
-// Best-effort set of national IDs already registered for this event (for dedup).
-async function fetchEventAttendeeNationalIds(eventId) {
-  const nationalIds = new Set();
+// Best-effort set of SYSTEM user ids already registered for this event (dedup).
+async function fetchEventAttendeeUserIds(eventId) {
+  const ids = new Set();
   try {
     const colId = await columnId(T.events, EVENT_ATTENDEES_LINK_TITLE);
     const data = await noco(`/api/v2/tables/${T.events}/links/${colId}/records/${eventId}`, { query: { limit: 1000 } });
     const list = Array.isArray(data) ? data : (data.list || []);
-    list.forEach((r) => { if (r[JUNCTION.userIdField]) nationalIds.add(String(r[JUNCTION.userIdField])); });
+    list.forEach((r) => { if (r[JUNCTION.userIdField] != null) ids.add(String(r[JUNCTION.userIdField])); });
   } catch (e) {
-    console.warn("fetchEventAttendeeNationalIds failed (proceeding without existing dedup):", e.message);
+    console.warn("fetchEventAttendeeUserIds failed (proceeding without existing dedup):", e.message);
   }
-  return nationalIds;
+  return ids;
 }
 
-// Create a junction row linking a user to the event with attendance status.
-async function linkAttendee(eventId, user, row) {
+// Event display name (en preferred, ar fallback) — written on the junction row.
+async function eventDisplayName(eventId) {
+  try {
+    const d = await noco(`/api/v2/tables/${T.events}/records`, { query: { where: `(Id,eq,${eventId})`, limit: 1 } });
+    const e = d.list && d.list[0];
+    return e ? (e.event_name_en || e.event_name_ar || "") : "";
+  } catch { return ""; }
+}
+
+// Create a junction row: system user_id + event name + attendance, then link both.
+async function linkAttendee(eventId, user, row, eventName) {
   const created = await noco(`/api/v2/tables/${T.attendees}/records`, {
     method: "POST",
     body: {
-      [JUNCTION.userIdField]: row.national_id || "",
+      [JUNCTION.userIdField]: recId(user),
+      [JUNCTION.eventNameField]: eventName || "",
       [JUNCTION.attendanceField]: !!row.__attendance,
     },
   });
@@ -318,11 +348,59 @@ app.get("/api/events", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/events  { field: value, ... }  -> { record }
+// GET /api/regions?search=  -> { list:[{id,name}] } for the holding-region link
+app.get("/api/regions", async (req, res, next) => {
+  try {
+    const nameField = await primaryValueField(T.regions);
+    const where = likeWhere([nameField], req.query.search);
+    const data = await noco(`/api/v2/tables/${T.regions}/records`, { query: { where, limit: 50 } });
+    const list = (data.list || []).map((r) => ({ id: recId(r), name: r[nameField] }));
+    res.json({ list });
+  } catch (e) { next(e); }
+});
+
+// POST /api/upload  { filename, mimetype, dataBase64 }  -> { attachment:[...] }
+// Proxies a file to NocoDB storage so it can be attached to a record.
+app.post("/api/upload", async (req, res, next) => {
+  try {
+    const { filename = "upload", mimetype = "application/octet-stream", dataBase64 } = req.body || {};
+    if (!dataBase64) return res.status(400).json({ error: "dataBase64 required" });
+    const buffer = Buffer.from(String(dataBase64).replace(/^data:[^;]+;base64,/, ""), "base64");
+    const fd = new FormData();
+    fd.append("file", new Blob([buffer], { type: mimetype }), filename);
+    const r = await fetch(NOCODB_BASE + "/api/v2/storage/upload", {
+      method: "POST", headers: { "xc-token": NOCODB_TOKEN }, body: fd,
+    });
+    const text = await r.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!r.ok) return res.status(r.status).json({ error: "upload failed", details: data });
+    res.json({ attachment: Array.isArray(data) ? data : [data] });
+  } catch (e) { next(e); }
+});
+
+// POST /api/events  { fields, regionId, regionName, attachment } (or raw fields) -> { record }
+// Copies start date -> event_date and region name -> event_city; links the region.
 app.post("/api/events", async (req, res, next) => {
   try {
-    const created = await noco(`/api/v2/tables/${T.events}/records`, { method: "POST", body: req.body });
-    res.json({ record: Array.isArray(created) ? created[0] : created });
+    const body = req.body || {};
+    const fields = body.fields ? { ...body.fields } : { ...body };
+    const { regionId, regionName, attachment } = body;
+
+    if (fields[EVENT_FIELDS.startDate] && !fields[EVENT_FIELDS.dateCopy])
+      fields[EVENT_FIELDS.dateCopy] = fields[EVENT_FIELDS.startDate];
+    if (regionName && !fields[EVENT_FIELDS.city]) fields[EVENT_FIELDS.city] = regionName;
+    if (attachment && attachment.length) fields[EVENT_FIELDS.attachments] = attachment;
+
+    const created = await createRecord(T.events, fields);
+    const eventId = recId(created);
+
+    if (regionId != null) {
+      try {
+        const colId = await linkColumnToTable(T.events, T.regions);
+        await linkRecords(T.events, colId, eventId, regionId);
+      } catch (e) { console.warn("region link failed:", e.message); }
+    }
+    res.json({ record: created });
   } catch (e) { next(e); }
 });
 
@@ -330,8 +408,7 @@ app.post("/api/events", async (req, res, next) => {
 app.post("/api/attendees/preview", async (req, res, next) => {
   try {
     const { eventId, rows = [] } = req.body;
-    const seenNat = await fetchEventAttendeeNationalIds(eventId);
-    const seenProfile = new Set();
+    const seenProfile = await fetchEventAttendeeUserIds(eventId); // system ids already in the event
     const maps = await buildAttendeeMaps(rows); // batched reads, no per-row calls
     const plans = [];
     for (let i = 0; i < rows.length; i++) {
@@ -339,16 +416,13 @@ app.post("/api/attendees/preview", async (req, res, next) => {
       let action, matchedUserId = null;
       if (row.__valid === false) {
         action = "invalid";
-      } else if (row.national_id && seenNat.has(String(row.national_id))) {
-        action = "skip-duplicate";
       } else {
         const user = matchAttendee(maps, row);
         matchedUserId = user ? recId(user) : null;
         if (matchedUserId != null && seenProfile.has(String(matchedUserId))) {
-          action = "skip-duplicate";
+          action = "skip-duplicate"; // already registered for this event (or earlier in file)
         } else {
           action = matchedUserId != null ? "link" : "create";
-          if (row.national_id) seenNat.add(String(row.national_id));
           if (matchedUserId != null) seenProfile.add(String(matchedUserId));
         }
       }
@@ -362,26 +436,27 @@ app.post("/api/attendees/preview", async (req, res, next) => {
 app.post("/api/attendees/commit", async (req, res, next) => {
   try {
     const { eventId, rows = [] } = req.body;
-    const seenNat = await fetchEventAttendeeNationalIds(eventId);
-    const seenProfile = new Set();
+    const seenProfile = await fetchEventAttendeeUserIds(eventId); // system ids already in the event
+    const eventName = await eventDisplayName(eventId);
     const maps = await buildAttendeeMaps(rows); // batched reads up front
     const result = { createdUsers: 0, linked: 0, skippedDuplicates: 0, invalid: 0, failed: [] };
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
         if (row.__valid === false) { result.invalid++; continue; }
-        if (row.national_id && seenNat.has(String(row.national_id))) { result.skippedDuplicates++; continue; }
         let user = matchAttendee(maps, row);
         if (!user) {
           user = await createUserProfile(userFieldsForCreate(row));
+          // seed match maps so later rows with the same identity resolve to this user
           if (row.national_id) (maps.national_id = maps.national_id || new Map()).set(String(row.national_id), user);
+          if (row.phone_number) (maps.phone_number = maps.phone_number || new Map()).set(String(row.phone_number), user);
+          if (row.Email) (maps.Email = maps.Email || new Map()).set(String(row.Email), user);
           result.createdUsers++;
         }
         const pid = String(recId(user));
         if (seenProfile.has(pid)) { result.skippedDuplicates++; continue; }
-        await linkAttendee(eventId, user, row);
+        await linkAttendee(eventId, user, row, eventName);
         result.linked++;
-        if (row.national_id) seenNat.add(String(row.national_id));
         seenProfile.add(pid);
       } catch (e) {
         result.failed.push({ index: i, reason: e.message });

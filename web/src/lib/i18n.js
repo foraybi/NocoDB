@@ -92,6 +92,9 @@ export const STRINGS = {
     tDuplicate: "مكرر (تخطي)",
     selectEventFirst: "الرجاء اختيار أو إنشاء فعالية.",
     required: "هذا الحقل مطلوب",
+    searchRegion: "ابحث عن منطقة...",
+    noRegions: "لا توجد منطقة مطابقة.",
+    uploadImage: "اختر صورة للرفع",
     // consultations
     consSubtitle: "ابحث عن المستفيد، عبّئ الاستشارة، واختر المستشار.",
     consStepUser: "المستفيد",
@@ -248,6 +251,9 @@ export const STRINGS = {
     tDuplicate: "Duplicate (skip)",
     selectEventFirst: "Please select or create an event.",
     required: "This field is required",
+    searchRegion: "Search a region...",
+    noRegions: "No matching region.",
+    uploadImage: "Choose an image to upload",
     // consultations
     consSubtitle: "Find the beneficiary, fill the consultation, and pick a consultant.",
     consStepUser: "Beneficiary",

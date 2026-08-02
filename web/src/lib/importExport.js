@@ -17,7 +17,28 @@ const REVERSE = (() => {
   return m;
 })();
 
-// Read a File -> { headers, rows } (strings). CSV read as UTF-8; xlsx via SheetJS.
+// Decode raw CSV bytes to text, coping with the encodings Arabic exports use.
+// Honors a BOM (UTF-8/UTF-16); otherwise tries strict UTF-8 and falls back to
+// windows-1256 (Arabic Excel) when the bytes aren't valid UTF-8 — this is what
+// turns the mojibake / "???" columns back into readable Arabic.
+function decodeCsvBytes(buf) {
+  const bytes = new Uint8Array(buf);
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  if (bytes[0] === 0xff && bytes[1] === 0xfe)
+    return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+  if (bytes[0] === 0xfe && bytes[1] === 0xff)
+    return new TextDecoder("utf-16be").decode(bytes.subarray(2));
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    try { return new TextDecoder("windows-1256").decode(bytes); }
+    catch { return new TextDecoder("utf-8").decode(bytes); }
+  }
+}
+
+// Read a File -> { headers, rows } (strings). CSV bytes are decoded with
+// encoding detection; xlsx via SheetJS.
 export function readImportFile(file) {
   const isExcel = /\.xlsx?$/i.test(file.name);
   return new Promise((resolve, reject) => {
@@ -33,13 +54,12 @@ export function readImportFile(file) {
           const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
           resolve({ headers, rows, fileType: "xlsx" });
         } else {
-          const { headers, rows } = parseCSV(reader.result);
+          const { headers, rows } = parseCSV(decodeCsvBytes(reader.result));
           resolve({ headers, rows, fileType: "csv" });
         }
       } catch (e) { reject(e); }
     };
-    if (isExcel) reader.readAsArrayBuffer(file);
-    else reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
   });
 }
 
