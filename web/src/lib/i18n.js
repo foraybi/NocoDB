@@ -115,6 +115,7 @@ export const STRINGS = {
     reviewExpert: "المستشار",
     selectUserFirst: "الرجاء اختيار أو إنشاء مستفيد.",
     selectExpertFirst: "الرجاء اختيار مستشار.",
+    linkWarning: "تم حفظ الاستشارة لكن تعذّر ربط أحد السجلات",
     // tech adoption
     taAddSession: "إضافة جلسة",
     taBulk: "استيراد مجمّع",
@@ -274,6 +275,7 @@ export const STRINGS = {
     reviewExpert: "Consultant",
     selectUserFirst: "Please select or create a beneficiary.",
     selectExpertFirst: "Please select a consultant.",
+    linkWarning: "Consultation saved, but a record couldn't be linked",
     // tech adoption
     taAddSession: "Add session",
     taBulk: "Bulk import",

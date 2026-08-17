@@ -25,7 +25,13 @@ export function ConsultationsPage() {
 
   const submit = useMutation({
     mutationFn: (body) => apiPost("/api/consultations", body),
-    onSuccess: () => { setSubmitted(true); notifications.show({ color: "green", message: t("submitted") }); },
+    onSuccess: (res) => {
+      setSubmitted(true);
+      notifications.show({ color: "green", message: t("submitted") });
+      (res?.warnings || []).forEach((w) =>
+        notifications.show({ color: "yellow", autoClose: false,
+          message: `${t("linkWarning")} (${w.link} #${w.relatedId})` }));
+    },
     onError: () => notifications.show({ color: "red", message: t("genericError") }),
   });
 

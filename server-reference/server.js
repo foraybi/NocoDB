@@ -196,6 +196,32 @@ async function primaryValueField(tableId) {
   return title;
 }
 
+// Resolve the RELATED table id that a link column (by title) points to (cached).
+const _linkTargetCache = {};
+async function linkTargetTableId(tableId, linkTitle) {
+  const key = `${tableId}:${linkTitle}`;
+  if (_linkTargetCache[key] !== undefined) return _linkTargetCache[key];
+  let target = null;
+  try {
+    const meta = await noco(`/api/v2/meta/tables/${tableId}`);
+    const col = (meta.columns || []).find((c) => c.title === linkTitle);
+    const o = (col && col.colOptions) || {};
+    target = o.fk_related_model_id || o.fk_related_table_id || null;
+  } catch { /* leave null */ }
+  _linkTargetCache[key] = target;
+  return target;
+}
+
+// Does a record with this Id exist in the given table? (best-effort; assumes yes
+// when the target is unknown or the check fails, so we never block wrongly).
+async function relatedRecordExists(targetTableId, id) {
+  if (!targetTableId || id == null || String(id).trim() === "") return true;
+  try {
+    const d = await noco(`/api/v2/tables/${targetTableId}/records`, { query: { where: `(Id,eq,${id})`, limit: 1 } });
+    return !!(d.list && d.list.length);
+  } catch { return true; }
+}
+
 // Link one related record into a Link column of a row on the given table.
 function linkRecords(tableId, linkColId, recordId, relatedId) {
   return noco(
@@ -230,17 +256,24 @@ app.post("/api/users", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Search the SAME table the consultation's Expert_ID column links to, so every
+// picked expert is a valid link target (falls back to the configured T.expert).
+async function expertsTableId() {
+  return (await linkTargetTableId(T.consultation, LINK_EXPERT_FIELD_TITLE)) || T.expert;
+}
+
 // GET /api/experts?search=  -> { list: [...] }
 app.get("/api/experts", async (req, res, next) => {
   try {
-    const data = await noco(`/api/v2/tables/${T.expert}/records`, {
+    const tableId = await expertsTableId();
+    const data = await noco(`/api/v2/tables/${tableId}/records`, {
       query: { where: likeWhere(EXPERT_SEARCH_FIELDS, req.query.search), limit: 100 },
     });
     res.json({ list: data.list || [] });
   } catch (e) { next(e); }
 });
 
-// POST /api/consultations  { fields, userId, expertId }  -> { record }
+// POST /api/consultations  { fields, userId, expertId }  -> { record, warnings }
 app.post("/api/consultations", async (req, res, next) => {
   try {
     const { fields = {}, userId, expertId } = req.body;
@@ -252,18 +285,29 @@ app.post("/api/consultations", async (req, res, next) => {
     const record = Array.isArray(created) ? created[0] : created;
     const consultationId = record.Id ?? record.id;
 
-    // 2) link the user profile
-    if (userId != null) {
-      const colId = await columnId(T.consultation, LINK_USER_FIELD_TITLE);
-      await linkRecords(T.consultation, colId, consultationId, userId);
-    }
-    // 3) link the expert
-    if (expertId != null) {
-      const colId = await columnId(T.consultation, LINK_EXPERT_FIELD_TITLE);
-      await linkRecords(T.consultation, colId, consultationId, expertId);
-    }
+    // 2) link user + expert. A missing/invalid related id must NOT throw away the
+    // consultation we just created — record a warning and carry on.
+    const warnings = [];
+    const safeLink = async (title, relatedId, label) => {
+      if (relatedId == null || String(relatedId).trim() === "") return;
+      const target = await linkTargetTableId(T.consultation, title);
+      if (!(await relatedRecordExists(target, relatedId))) {
+        warnings.push({ link: label, relatedId, targetTable: target, reason: "related record not found" });
+        console.warn(`consultation link skipped: ${label} #${relatedId} not found in ${target}`);
+        return;
+      }
+      try {
+        const colId = await columnId(T.consultation, title);
+        await linkRecords(T.consultation, colId, consultationId, relatedId);
+      } catch (e) {
+        warnings.push({ link: label, relatedId, targetTable: target, reason: (e.body && e.body.message) || e.message });
+        console.warn(`consultation link failed: ${label} #${relatedId} ->`, (e.body && e.body.message) || e.message);
+      }
+    };
+    await safeLink(LINK_USER_FIELD_TITLE, userId, "user");
+    await safeLink(LINK_EXPERT_FIELD_TITLE, expertId, "expert");
 
-    res.json({ record });
+    res.json({ record, warnings });
   } catch (e) { next(e); }
 });
 
