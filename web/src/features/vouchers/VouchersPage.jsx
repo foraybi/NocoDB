@@ -174,6 +174,14 @@ export function VouchersPage() {
             <DynamicForm fields={VC.assignFields} values={form} errors={errors} onChange={(k, v) => setForm((f) => ({ ...f, [k]: v }))} />
           </Card>
 
+          <Card padding="lg" withBorder>
+            <Text fw={600} mb="sm">{t("linkedDetails")}</Text>
+            <Stack gap={6}>
+              <LinkedRow label={t("voucherType")} value={voucher?.type?.title} />
+              <LinkedRow label={t("expertNameAr")} value={expert?.[CONFIG.expert.display.primary]} />
+            </Stack>
+          </Card>
+
           <Group justify="space-between">
             <Button variant="subtle" leftSection={<IconArrowLeft size={16} stroke={1.8} />} onClick={() => setActive(1)}>{t("back")}</Button>
             <Button leftSection={<IconSend size={16} stroke={1.8} />} loading={assign.isPending} onClick={doAssign}>{t("assignVoucher")}</Button>
@@ -181,6 +189,15 @@ export function VouchersPage() {
         </Stack>
       )}
     </>
+  );
+}
+
+function LinkedRow({ label, value }) {
+  return (
+    <Group justify="space-between" gap="xs">
+      <Text size="sm" c="dimmed">{label}</Text>
+      <Text size="sm" fw={500} ta="end">{value || "—"}</Text>
+    </Group>
   );
 }
 
