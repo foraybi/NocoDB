@@ -964,11 +964,20 @@ app.post("/api/digital-vouchers", async (req, res, next) => {
 
 // ---- Static frontend (built Vite SPA) + error handler ----------------------
 const DIST = path.join(__dirname, "..", "web", "dist");
-app.use(express.static(DIST));
+app.use(express.static(DIST, {
+  setHeaders(res, filePath) {
+    // Hashed assets (…/assets/index-xxxx.js) never change -> cache forever.
+    // index.html MUST always revalidate, otherwise a rebuild's new bundle is
+    // never picked up and users keep seeing the old app.
+    if (filePath.endsWith("index.html")) res.setHeader("Cache-Control", "no-cache");
+    else if (filePath.includes(`${path.sep}assets${path.sep}`)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  },
+}));
 
 // SPA fallback: serve index.html for client-side routes (anything not /api/*).
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
+  res.setHeader("Cache-Control", "no-cache");
   res.sendFile(path.join(DIST, "index.html"), (e) => e && next(e));
 });
 
