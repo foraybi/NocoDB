@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Card, Stack, Group, Text, Button, Badge, Table, Select, Textarea, ThemeIcon,
-  Loader, Center, Pagination, SimpleGrid,
+  Pagination, SimpleGrid, SegmentedControl,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
 import {
@@ -43,6 +43,8 @@ export function ConsultationsBulk() {
   const t = useUiStore((s) => s.t);
   const lang = useUiStore((s) => s.lang);
 
+  const [mode, setMode] = useState("file"); // "file" | "manual"
+  const [manualText, setManualText] = useState("");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState([]);
   const [rawRows, setRawRows] = useState([]);
@@ -56,7 +58,20 @@ export function ConsultationsBulk() {
   const [error, setError] = useState("");
 
   const topicFor = (name) => template.split(C.bulk.nameToken).join(name || "");
-  const buildRows = () => rawRows.map((r) => normalizeRow(r, mapping, AI));
+
+  // Manual mode: one beneficiary per line, "name" or "name, email, phone".
+  const parseManual = (txt) =>
+    txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
+      const [name, email, phone] = line.split(",").map((s) => (s || "").trim());
+      const row = { __valid: true };
+      if (name) row.en_full_name = name;
+      if (email) row.Email = email;
+      if (phone) row.phone_number = phone.replace(/\D+/g, "");
+      return row;
+    });
+
+  const buildRows = () =>
+    mode === "manual" ? parseManual(manualText) : rawRows.map((r) => normalizeRow(r, mapping, AI));
 
   const previewMut = useMutation({
     mutationFn: (rows) => apiPost("/api/consultations/bulk/preview", { rows }),
@@ -86,14 +101,20 @@ export function ConsultationsBulk() {
     } catch (e) { console.error(e); setError(t("csvParseError")); }
   };
 
-  const ready = expert && template.trim() && rawRows.length > 0;
+  const hasInput = mode === "manual" ? parseManual(manualText).length > 0 : rawRows.length > 0;
+  const ready = expert && template.trim() && hasInput;
   const runPreview = () => {
     if (!ready) { notifications.show({ color: "red", message: t("selectExpertTemplate") }); return; }
     previewMut.mutate(buildRows());
   };
 
+  const switchMode = (m) => {
+    setMode(m); setPreview(null); setReport(null);
+    setFileName(""); setHeaders([]); setRawRows([]); setMapping({}); setManualText("");
+  };
+
   const reset = () => {
-    setFileName(""); setHeaders([]); setRawRows([]); setMapping({});
+    setFileName(""); setHeaders([]); setRawRows([]); setMapping({}); setManualText("");
     setPreview(null); setReport(null); setShared({}); setPage(1);
   };
 
@@ -133,31 +154,49 @@ export function ConsultationsBulk() {
     <Stack gap="lg">
       <Text c="dimmed" size="sm">{t("consBulkHint")}</Text>
 
-      <Card padding="xl">
-        <Dropzone
-          onDrop={handleDrop}
-          accept={[
-            "text/csv", ".csv",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx",
-            "application/vnd.ms-excel", ".xls",
-          ]}
-          maxFiles={1} multiple={false}
-        >
-          <Group justify="center" gap="xl" mih={140} style={{ pointerEvents: "none" }}>
-            <Dropzone.Accept><ThemeIcon size={52} radius="xl" variant="light"><IconUpload size={28} stroke={1.5} /></ThemeIcon></Dropzone.Accept>
-            <Dropzone.Reject><ThemeIcon size={52} radius="xl" color="red" variant="light"><IconX size={28} stroke={1.5} /></ThemeIcon></Dropzone.Reject>
-            <Dropzone.Idle><ThemeIcon size={52} radius="xl" variant="light"><IconFileSpreadsheet size={28} stroke={1.5} /></ThemeIcon></Dropzone.Idle>
-            <div>
-              <Text size="lg" fw={600}>{t("dropFile")}</Text>
-              {fileName && <Badge mt={6} variant="light">{fileName} · {rawRows.length}</Badge>}
-            </div>
-          </Group>
-        </Dropzone>
-      </Card>
+      <SegmentedControl
+        value={mode} onChange={switchMode}
+        data={[{ value: "file", label: t("modeFile") }, { value: "manual", label: t("modeManual") }]}
+      />
+
+      {mode === "file" ? (
+        <Card padding="xl">
+          <Dropzone
+            onDrop={handleDrop}
+            accept={[
+              "text/csv", ".csv",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx",
+              "application/vnd.ms-excel", ".xls",
+            ]}
+            maxFiles={1} multiple={false}
+          >
+            <Group justify="center" gap="xl" mih={140} style={{ pointerEvents: "none" }}>
+              <Dropzone.Accept><ThemeIcon size={52} radius="xl" variant="light"><IconUpload size={28} stroke={1.5} /></ThemeIcon></Dropzone.Accept>
+              <Dropzone.Reject><ThemeIcon size={52} radius="xl" color="red" variant="light"><IconX size={28} stroke={1.5} /></ThemeIcon></Dropzone.Reject>
+              <Dropzone.Idle><ThemeIcon size={52} radius="xl" variant="light"><IconFileSpreadsheet size={28} stroke={1.5} /></ThemeIcon></Dropzone.Idle>
+              <div>
+                <Text size="lg" fw={600}>{t("dropFile")}</Text>
+                {fileName && <Badge mt={6} variant="light">{fileName} · {rawRows.length}</Badge>}
+              </div>
+            </Group>
+          </Dropzone>
+        </Card>
+      ) : (
+        <Card padding="lg">
+          <Textarea
+            label={t("enterNames")} description={t("enterNamesHint")} autosize minRows={4}
+            value={manualText} onChange={(e) => setManualText(e.currentTarget.value)}
+            onBlur={() => setPreview(null)}
+          />
+          {parseManual(manualText).length > 0 && (
+            <Badge mt="sm" variant="light">{parseManual(manualText).length}</Badge>
+          )}
+        </Card>
+      )}
 
       {error && <Text c="red" size="sm">{error}</Text>}
 
-      {headers.length > 0 && (
+      {mode === "file" && headers.length > 0 && (
         <Card padding="lg">
           <Text fw={600} mb="sm">{t("mapColumns")}</Text>
           <Table.ScrollContainer minWidth={420}>
