@@ -96,7 +96,7 @@ export function ConsultationsBulk() {
       const parsed = await readImportFile(files[0]);
       setFileName(files[0].name);
       setHeaders(parsed.headers);
-      setRawRows(parsed.rawRows);
+      setRawRows(parsed.rows);
       setMapping(autoMap(parsed.headers, AI.headerMap));
     } catch (e) { console.error(e); setError(t("csvParseError")); }
   };

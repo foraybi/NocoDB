@@ -52,10 +52,10 @@ export function readImportFile(file) {
           const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
           const headers = (aoa[0] || []).map((h) => String(h).trim());
           const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-          resolve({ headers, rows, fileType: "xlsx" });
+          resolve({ headers, rows, rawRows: rows, fileType: "xlsx" });
         } else {
           const { headers, rows } = parseCSV(decodeCsvBytes(reader.result));
-          resolve({ headers, rows, fileType: "csv" });
+          resolve({ headers, rows, rawRows: rows, fileType: "csv" });
         }
       } catch (e) { reject(e); }
     };

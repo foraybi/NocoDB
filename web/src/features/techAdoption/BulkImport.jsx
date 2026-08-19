@@ -38,7 +38,7 @@ export function BulkImport() {
     setError(""); setPreview(null); setReport(null); setPage(1);
     try {
       const parsed = await readImportFile(files[0]);
-      const built = buildRows(parsed.rawRows, TA);
+      const built = buildRows(parsed.rows, TA);
       setFileName(files[0].name);
       setRows(built);
       previewMut.mutate(built);
