@@ -290,6 +290,69 @@ app.post("/api/consultations", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/consultations/bulk/preview  { rows:[{en_full_name,Email,phone_number,national_id}] }
+// Dry-run: for each beneficiary, will we link an existing user or create one?
+app.post("/api/consultations/bulk/preview", async (req, res, next) => {
+  try {
+    const { rows = [] } = req.body;
+    const maps = await buildAttendeeMaps(rows); // batched reads
+    const plans = rows.map((row, i) => {
+      const hasIdentity = row.en_full_name || row.national_id || row.Email || row.phone_number;
+      if (!hasIdentity) return { index: i, action: "invalid" };
+      const user = matchAttendee(maps, row);
+      return { index: i, action: user ? "link-existing" : "create", matchedName: user ? (user.en_full_name || user.full_name || null) : null };
+    });
+    const totals = plans.reduce((a, p) => { a[p.action] = (a[p.action] || 0) + 1; return a; }, {});
+    res.json({ totals, rows: plans });
+  } catch (e) { next(e); }
+});
+
+// POST /api/consultations/bulk/commit  { expertId, sharedFields, rows:[{user, topic}] }
+// One consultation per row: shared fields + generated topic, linked to the user
+// (match-else-create) and the single expert.
+app.post("/api/consultations/bulk/commit", async (req, res, next) => {
+  try {
+    const { expertId, sharedFields = {}, rows = [] } = req.body;
+    const userRows = rows.map((r) => r.user || {});
+    const maps = await buildAttendeeMaps(userRows); // batched reads up front
+    // resolve link columns once (by target table, robust to mistitled columns)
+    let userCol = null, expertCol = null;
+    try { userCol = await linkColumnToTable(T.consultation, T.userProfile); } catch (e) { console.warn("bulk cons: no user link col", e.message); }
+    try { expertCol = await linkColumnToTable(T.consultation, T.expert); } catch (e) { console.warn("bulk cons: no expert link col", e.message); }
+    const result = { created: 0, createdUsers: 0, linkedExisting: 0, invalid: 0, failed: [] };
+    for (let i = 0; i < rows.length; i++) {
+      const u = rows[i].user || {};
+      const topic = rows[i].topic;
+      try {
+        const hasIdentity = u.en_full_name || u.national_id || u.Email || u.phone_number;
+        if (!hasIdentity) { result.invalid++; continue; }
+        let user = matchAttendee(maps, u);
+        if (!user) {
+          user = await createUserProfile(userFieldsForCreate(u));
+          if (u.national_id) (maps.national_id = maps.national_id || new Map()).set(String(u.national_id), user);
+          if (u.phone_number) (maps.phone_number = maps.phone_number || new Map()).set(String(u.phone_number), user);
+          if (u.Email) (maps.Email = maps.Email || new Map()).set(String(u.Email), user);
+          result.createdUsers++;
+        } else { result.linkedExisting++; }
+
+        const fields = Object.assign({}, sharedFields);
+        if (topic) fields.consultation_topic = topic;
+        const bname = user.en_full_name || user.full_name || u.en_full_name;
+        if (bname && !fields.beneficiary_name) fields.beneficiary_name = bname;
+
+        const created = await createRecord(T.consultation, fields);
+        const cid = recId(created);
+        if (userCol) { try { await linkRecords(T.consultation, userCol, cid, recId(user)); } catch (e) { console.warn(`bulk cons user link ${cid}:`, e.message); } }
+        if (expertCol && expertId != null) { try { await linkRecords(T.consultation, expertCol, cid, expertId); } catch (e) { console.warn(`bulk cons expert link ${cid}:`, e.message); } }
+        result.created++;
+      } catch (e) {
+        result.failed.push({ index: i, reason: e.message });
+      }
+    }
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
 // ============================================================================
 // EVENTS + ATTENDEE CSV IMPORT
 // ============================================================================

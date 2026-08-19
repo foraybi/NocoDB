@@ -64,6 +64,15 @@ export const CONFIG = {
     ],
     autoFillFromUser: { beneficiary_name: "en_full_name" },
     links: { userFieldTitle: "User Profile", expertFieldTitle: "Expert_ID" },
+    // Bulk import: one file of beneficiaries -> one consultation each, all tied
+    // to a single expert. The per-row consultation_topic is generated from a
+    // template where {name} is replaced by the beneficiary's name.
+    bulk: {
+      topicField: "consultation_topic",
+      nameToken: "{name}",
+      templateDefaultEn: "Consultation given for {name} about ",
+      templateDefaultAr: "استشارة مقدّمة لـ {name} حول ",
+    },
   },
 
   // ---- EVENTS ----

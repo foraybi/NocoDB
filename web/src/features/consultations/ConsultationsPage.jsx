@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Stepper, Stack, Group, Button, Card, Text, Divider, SimpleGrid } from "@mantine/core";
+import { Stepper, Stack, Group, Button, Card, Text, Divider, SimpleGrid, Tabs } from "@mantine/core";
 import { useMutation } from "@tanstack/react-query";
-import { IconArrowLeft, IconArrowRight, IconSend, IconCircleCheck } from "@tabler/icons-react";
+import { IconArrowLeft, IconArrowRight, IconSend, IconCircleCheck, IconUser, IconUpload } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { PageHeader } from "../../components/PageHeader.jsx";
 import { SearchSelect } from "../../components/SearchSelect.jsx";
 import { DynamicForm, validateRequired, fieldLabel } from "../../components/DynamicForm.jsx";
+import { ConsultationsBulk } from "./ConsultationsBulk.jsx";
 import { useUiStore } from "../../stores/uiStore";
 import { useConsultationsStore } from "../../stores/consultationsStore";
 import { CONFIG } from "../../lib/config.js";
@@ -17,6 +18,23 @@ const EX = CONFIG.expert;
 const recId = (r) => r && (r.Id ?? r.id ?? r.ID);
 
 export function ConsultationsPage() {
+  const t = useUiStore((s) => s.t);
+  return (
+    <>
+      <PageHeader title={t("consultations")} subtitle={t("consSubtitle")} />
+      <Tabs defaultValue="single" keepMounted={false}>
+        <Tabs.List mb="lg">
+          <Tabs.Tab value="single" leftSection={<IconUser size={16} stroke={1.6} />}>{t("consSingle")}</Tabs.Tab>
+          <Tabs.Tab value="bulk" leftSection={<IconUpload size={16} stroke={1.6} />}>{t("consBulk")}</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="single"><SingleConsultation /></Tabs.Panel>
+        <Tabs.Panel value="bulk"><ConsultationsBulk /></Tabs.Panel>
+      </Tabs>
+    </>
+  );
+}
+
+function SingleConsultation() {
   const t = useUiStore((s) => s.t);
   const lang = useUiStore((s) => s.lang);
   const [step, setStep] = useState(0);
@@ -54,22 +72,18 @@ export function ConsultationsPage() {
 
   if (submitted) {
     return (
-      <>
-        <PageHeader title={t("consultations")} subtitle={t("consSubtitle")} />
-        <Card padding="xl">
-          <Stack align="center" gap="sm" py="lg">
-            <IconCircleCheck size={48} color="var(--mantine-color-teal-6)" />
-            <Text fw={600}>{t("submitted")}</Text>
-            <Button mt="sm" onClick={() => { reset(); setStep(0); }}>{t("consultations")}</Button>
-          </Stack>
-        </Card>
-      </>
+      <Card padding="xl">
+        <Stack align="center" gap="sm" py="lg">
+          <IconCircleCheck size={48} color="var(--mantine-color-teal-6)" />
+          <Text fw={600}>{t("submitted")}</Text>
+          <Button mt="sm" onClick={() => { reset(); setStep(0); }}>{t("consultations")}</Button>
+        </Stack>
+      </Card>
     );
   }
 
   return (
     <>
-      <PageHeader title={t("consultations")} subtitle={t("consSubtitle")} />
       <Stepper active={step} onStepClick={setStep} mb="xl" size="sm">
         <Stepper.Step label={t("consStepUser")} />
         <Stepper.Step label={t("consStepForm")} allowStepSelect={!!user} />
