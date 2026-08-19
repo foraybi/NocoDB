@@ -315,10 +315,12 @@ app.post("/api/consultations/bulk/commit", async (req, res, next) => {
     const { expertId, sharedFields = {}, rows = [] } = req.body;
     const userRows = rows.map((r) => r.user || {});
     const maps = await buildAttendeeMaps(userRows); // batched reads up front
-    // resolve link columns once (by target table, robust to mistitled columns)
+    // resolve link columns once. Pass the title hints so that when several
+    // columns point at the same table we pick the intended one (e.g. the
+    // "User Profile" column, not another consultation->user_profile link).
     let userCol = null, expertCol = null;
-    try { userCol = await linkColumnToTable(T.consultation, T.userProfile); } catch (e) { console.warn("bulk cons: no user link col", e.message); }
-    try { expertCol = await linkColumnToTable(T.consultation, T.expert); } catch (e) { console.warn("bulk cons: no expert link col", e.message); }
+    try { userCol = await linkColumnToTable(T.consultation, T.userProfile, LINK_USER_FIELD_TITLE); } catch (e) { console.warn("bulk cons: no user link col", e.message); }
+    try { expertCol = await linkColumnToTable(T.consultation, T.expert, LINK_EXPERT_FIELD_TITLE); } catch (e) { console.warn("bulk cons: no expert link col", e.message); }
     const result = { created: 0, createdUsers: 0, linkedExisting: 0, invalid: 0, failed: [] };
     for (let i = 0; i < rows.length; i++) {
       const u = rows[i].user || {};
