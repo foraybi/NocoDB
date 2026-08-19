@@ -73,7 +73,7 @@ const TA = {
 const COMPANY_SEARCH_TEXT_FIELDS = ["company_name_en", "company_name_ar"];
 
 // Incubation import settings (keep in sync with ../config.js incubationImport).
-const INC_STATUS = { approved: "approved", registered: "registered" };
+const INC_STATUS = { approved: "approved", registered: "registered", new: "new" };
 const INCUBATION_START_DATE_FIELD = "incubation_start_date";
 const COMPANY_USER_ID_FIELD = "user_id"; // company_profile column set to the created user's Id
 // Title hints only needed if a table has >1 link to the same target table.

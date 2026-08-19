@@ -10,7 +10,7 @@ import { notifications } from "@mantine/notifications";
 import { useUiStore } from "../../stores/uiStore";
 import { useIncubationStore } from "../../stores/incubationStore";
 import { CONFIG } from "../../lib/config.js";
-import { effect, NORM, isSelectable } from "../../lib/incubationStatus.js";
+import { effect, NORM, isSelectable, isRegisteredLike } from "../../lib/incubationStatus.js";
 import { downloadEdited } from "../../lib/importExport.js";
 import { apiPost } from "../../api/client.js";
 
@@ -215,7 +215,7 @@ export function ReviewStep({ onBack }) {
                 const invalid = p.action === "invalid";
                 const canEdit = e.processed && !invalid;
                 const showData = !invalid;
-                const editableStatus = NORM(n._origStatus) === NORM(IMP.status.registered);
+                const editableStatus = isRegisteredLike(n._origStatus, IMP);
                 const actionText = invalid ? "invalid" : e.processed ? (e.incubate ? `${p.userAction}/${p.companyAction}+inc` : `${p.userAction}/${p.companyAction}`) : "skip";
                 const sel = isSelectable(normalized, p, IMP);
 
@@ -232,6 +232,7 @@ export function ReviewStep({ onBack }) {
                           data={[
                             { value: IMP.status.approved, label: IMP.status.approved },
                             { value: IMP.status.registered, label: IMP.status.registered },
+                            { value: IMP.status.new, label: IMP.status.new },
                             { value: "rejected", label: "rejected" },
                           ]}
                           onChange={(v) => v && st.setStatus(p.index, v)} />

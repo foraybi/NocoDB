@@ -260,7 +260,7 @@ export const CONFIG = {
       "مستثمر": "investor",
     },
     statusColumn: "registration_status",
-    status: { approved: "approved", registered: "registered" },
+    status: { approved: "approved", registered: "registered", new: "new" },
     incubationStartDateField: "incubation_start_date",
     linkTitleHints: { companyToUser: "", incubationToCompany: "", incubationToUser: "" },
   },

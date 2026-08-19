@@ -16,10 +16,11 @@ function normStatus(v) {
 function planRow(row, cfg) {
   const messages = [];
   const status = normStatus(row && row.status);
-  const S = (cfg && cfg.status) || { approved: "approved", registered: "registered" };
+  const S = (cfg && cfg.status) || { approved: "approved", registered: "registered", new: "new" };
 
   const isApproved = status === normStatus(S.approved);
-  const isRegistered = status === normStatus(S.registered);
+  // "new" behaves the same as "registered": user + company, no incubation.
+  const isRegistered = status === normStatus(S.registered) || (S.new && status === normStatus(S.new));
 
   // rejected / blank / unknown -> skip entirely (no user, no company)
   if (!isApproved && !isRegistered) {
